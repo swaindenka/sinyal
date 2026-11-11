@@ -1226,7 +1226,10 @@ function renderWord() {
   if (w.shield) active.push(`<span class="tag primary">${icon('shield', { size: 12 })} Kalkan aktif</span>`);
   if (w.forbiddenPass) active.push(`<span class="tag gold">${icon('key', { size: 12 })} Anahtar aktif</span>`);
   const letters = [];
-  if (k.present.length) letters.push(`<span>Kelimede var: <b>${esc(k.present.join(' '))}</b></span>`);
+  // Yeri bilinen harfler (Fener ile açılanlar dahil) "kelimede var" listesinde tekrar gösterilmez.
+  const placed = new Set([...k.known.filter(Boolean), ...revealed.values()]);
+  const present = k.present.filter((c) => !placed.has(c));
+  if (present.length) letters.push(`<span>Kelimede var: <b>${esc(present.join(' '))}</b></span>`);
   if (k.absent.length && !blind) letters.push(`<span>Yok: <b>${esc(k.absent.join(' '))}</b></span>`);
   if (blind && w.board.length) letters.push('<span>Kör renk: turuncu çizgiler gri görünüyor</span>');
   el.innerHTML = `
