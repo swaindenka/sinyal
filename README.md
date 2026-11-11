@@ -12,13 +12,15 @@ Kuralların tamamı: [`docs/SINYAL_SPEC.md`](docs/SINYAL_SPEC.md)
 ```bash
 npm install
 npm start            # http://localhost:3000
-npm run dev          # geliştirme modu: 2 oyuncuyla oynanabilir, dosya değişince yeniden başlar
+npm run dev          # dosya değişince sunucuyu yeniden başlatır
 npm test             # birim + oyun motoru testleri
 ```
 
 Odayı kuran kişi davet linkini paylaşır (`/?oda=KOD`); diğerleri adını yazıp katılır.
-Aynı tarayıcıda farklı sekmeler farklı oyuncu sayılır, böylece tek başına da deneyebilirsin
-(`npm run dev` ile 2 sekme yeterli).
+Oyun **2–8 kişiyle** oynanır. İki kişide biri kaptan, diğeri tahminci olur; tek tahmincinin
+tahmini, pası ve kumbara isteği onay beklemeden uygulanır (köstebek kartı en az 3 tahminci ister,
+2–3 kişide çıkmaz). Aynı tarayıcıda farklı sekmeler farklı oyuncu sayılır, böylece iki sekmeyle
+tek başına da deneyebilirsin.
 
 **Oda sahibi** takım adını belirler, kaptan sırasını düzenler ya da karıştırır, oyunu duraklatır,
 hesaplaşmayı erken bitirir ve gerekirse bir oyuncuyu odadan çıkarır (ör. ekran başında olmayan biri
@@ -43,7 +45,7 @@ WebSocket bağlantıları Render'da ek ayar gerektirmez; sunucu `PORT` değişke
 | `PORT` | Dinlenecek port (Render otomatik verir) |
 | `DATABASE_URL` | İsteğe bağlı PostgreSQL adresi. Verilirse takım rekorları ve kullanılmış bulmacalar burada tutulur |
 | `DATA_DIR` | `DATABASE_URL` yoksa kayıtların yazılacağı klasör (varsayılan `./storage`) |
-| `SINYAL_DEV` | `1` ise geliştirme modu: 2 oyuncuyla başlanabilir |
+| `SINYAL_DEV` | `1` ise geliştirme modu: config'de `devMinPlayers` varsa o kadar oyuncuyla başlanabilir |
 | `SINYAL_CONFIG` | Başka bir config dosyası yolu |
 
 > **Ücretsiz plan uykusu:** Render ücretsiz servisi 15 dk istek almazsa uyur ve ilk açılış ~1 dk
@@ -60,7 +62,6 @@ WebSocket bağlantıları Render'da ek ayar gerektirmez; sunucu `PORT` değişke
 Tüm sayısal değerler (süreler, can, satır sayıları, eşikler, zorluk seviyeleri, kaos kartları)
 [`config/game.json`](config/game.json) dosyasındadır. Spec'teki değerlere ek olarak:
 
-- `devMinPlayers`: geliştirme modunda gereken oyuncu sayısı
 - `hostGraceSeconds`: oda sahibi koptuğunda yetkinin devredilmesi için beklenecek süre
 - `emptyRoomSeconds`: kimsenin bağlı olmadığı odanın silinme süresi
 - `requireApprovedPuzzles`: `true` ise sadece elle onaylanmış bulmacalar kullanılır
@@ -135,17 +136,20 @@ sütununu `1` yap, kaydedip `--approvals` ile uygula, sonra `config/game.json`'d
 - `server/store.js` — takım rekorları (dosya ya da PostgreSQL)
 - `server/index.js` — HTTP (statik dosyalar, `/health`) + WebSocket (`/ws`)
 - `public/` — derleme gerektirmeyen istemci (HTML/CSS/JS modülleri), Türkçe Q ekran klavyesi.
-  Arayüz token tabanlı tek bir tasarım sistemi kullanır (`style.css`), açık/koyu temayı cihaz
-  ayarına göre seçer; ikonlar `icons.js`'teki satır içi SVG'lerdir. Harf renkleri mavi (tam yer),
-  turuncu (kelimede var) ve gridir (yok). Oyun ekranı: kaptanın ortada oturduğu masa, takımın
-  bildiği harfler ve tuzak konumu, kaptanın sinyallerinin mesaj akışı (tahminler altında yanıt
-  olarak) ve yalnızca yazarken açılan klavye.
+  Görsel dil bir kart masasıdır: oynanan her satır krem renkli bir kelime kartıdır (kaptanın
+  sinyalleri koyu "kaptan kartı", tuzak siyah ve damgalı), kalan satırlar ters çevrilmiş deste,
+  kaptanın gizli bilgisi bir "dosya". Harf ipucu harflerin altındaki renk çizgileridir: mavi tam
+  yer, turuncu kelimede var, gri yok. Tasarım `style.css`'teki tokenlarla açık/koyu temayı cihaz
+  ayarına göre seçer; ikonlar `icons.js`'teki satır içi SVG'ler, kart yazı tipi sunucudan
+  sunulan Oswald'dır (`public/fonts`, SIL Open Font License). Klavye yalnızca yazarken açılır.
 
 Gizli bilgiler (gizli kelime, tuzaklar, yasak harfler, köstebek kimliği) hiçbir zaman herkese
 yayınlanan duruma yazılmaz; sadece ilgili oyuncuya özel mesajla gider ve hesaplaşmada açılır.
 Sayaçlar sunucuda tutulur; istemciye `endsAt` gönderilir, istemci sadece geri sayımı çizer.
 
 ### Spec'ten bilinçli farklar
+
+- **En az 2 oyuncu** (spec'te 3): iki kişide tek tahminci olduğu için öneriler hemen gönderilir.
 
 - **Next.js + Colyseus yerine** sade Node.js + `ws` ve derlemesiz bir istemci kullanıldı:
   tek bir Render Web Service olarak `npm start` ile çalışır, build adımı yoktur.

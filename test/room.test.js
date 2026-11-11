@@ -11,14 +11,14 @@ function start(h) {
   assert.equal(h.room.phase, Phase.WORD_SETUP);
 }
 
-test('lobi: ilk katılan host olur, takım adı ve en az 3 oyuncu gerekir', () => {
-  const h = makeRoom({ players: 2 });
+test('lobi: ilk katılan host olur, takım adı ve en az 2 oyuncu gerekir', () => {
+  const h = makeRoom({ players: 1 });
   assert.equal(h.room.hostId, h.ps[0].id);
   h.room.handle(h.ps[0].id, { type: 'start' });
   assert.equal(h.lastError(h.ps[0].id), 'NOT_ENOUGH_PLAYERS');
-  h.room.join({ name: 'Üçüncü' });
-  h.room.handle(h.ps[1].id, { type: 'start' });
-  assert.equal(h.lastError(h.ps[1].id), 'NOT_HOST');
+  const second = h.room.join({ name: 'İkinci' });
+  h.room.handle(second.id, { type: 'start' });
+  assert.equal(h.lastError(second.id), 'NOT_HOST');
   h.room.handle(h.ps[0].id, { type: 'set_team', name: '' });
   h.room.handle(h.ps[0].id, { type: 'start' });
   assert.equal(h.lastError(h.ps[0].id), 'TEAM_NAME_REQUIRED');
@@ -377,7 +377,7 @@ test('host ayrılırsa yetki sıradaki bağlı oyuncuya geçer', () => {
 });
 
 test('bağlı oyuncu sayısı alt sınırın altına düşerse oyun duraklar', () => {
-  const h = makeRoom({ players: 3 });
+  const h = makeRoom({ players: 2 });
   start(h);
   h.toSignal();
   const g = h.guessers()[0];
@@ -655,4 +655,39 @@ test('köstebek oylaması duraklamadayken sonuçlanmaz', () => {
   assert.equal(h.room.phase, Phase.MOLE_VOTE);
   h.room.handle(h.room.hostId, { type: 'pause' });
   assert.equal(h.room.phase, Phase.REVEAL);
+});
+
+test('2 oyuncu: tek tahmincinin önerisi, pası ve kumbara isteği hemen uygulanır', () => {
+  const h = makeRoom({ players: 2 });
+  start(h);
+  const [g] = h.guessers();
+  assert.equal(h.room.publicState().word.thresholds.guess, 1);
+  h.toSignal();
+  h.signal('ELMAS');
+  h.room.handle(g.id, { type: 'propose_guess', word: 'MASAL' });
+  assert.equal(h.room.word.board.length, 2, 'onay beklemeden gönderildi');
+  h.clock.advance(2000);
+  h.room.handle(g.id, { type: 'propose_pass' });
+  assert.equal(h.room.phase, Phase.SIGNAL);
+  h.signal('HELVA');
+  h.room.run.bank = 1;
+  h.clock.advance(2000);
+  h.room.handle(g.id, { type: 'request_bank_row' });
+  assert.equal(h.room.word.rowLimit, 7);
+  h.clock.advance(2000);
+  h.room.handle(g.id, { type: 'propose_guess', word: h.secret() });
+  assert.equal(h.room.reveal.result, 'solved');
+});
+
+test('2 oyuncu: kaptanlık sırayla geçer, köstebek kartı çekilmez', () => {
+  const config = testConfig({ chaos: { startWord: 1, every: 1, cards: ['mole', 'fast'] } });
+  const h = makeRoom({ players: 2, config });
+  start(h);
+  const first = h.captain().id;
+  assert.equal(h.room.word.chaosCard, 'fast');
+  h.toSignal();
+  h.signal('ELMAS');
+  h.guess(h.secret());
+  h.room.handle(h.room.hostId, { type: 'skip_reveal' });
+  assert.notEqual(h.captain().id, first);
 });
