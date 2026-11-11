@@ -2467,11 +2467,38 @@ details.card[open] > summary {
 }
 
 @media (max-width: 560px) {
-  /* Oyun üst çubuğu tek satır: logo gizlenir, rozetler küçülür. */
+  /* Oyun üst çubuğu iki satır: üstte takım adı + oda kodu + ses, altta rozetler.
+     Tek satırda seri rozeti çıkınca takım adı ezilip oda kodu kalplerin altına taşıyordu. */
+  #g-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 10px;
+  }
   #g-top .logo {
     display: none;
   }
+  #g-top .brand > div {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  #g-top .brand .name {
+    min-width: 0;
+  }
+  #g-top .brand .code {
+    flex: none;
+    white-space: nowrap;
+  }
+  #g-top > .icon-btn {
+    grid-column: 2;
+    grid-row: 1;
+    width: 32px;
+    height: 32px;
+  }
   #g-top .stats {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    flex-wrap: wrap;
     gap: 4px;
   }
   #g-top .pill {
