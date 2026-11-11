@@ -25,6 +25,18 @@ export class Dictionary {
     return this.categories[category]?.has(word) ?? false;
   }
 
+  /** Belirli uzunlukta, sıklık sırası maxRank'tan küçük (yaygın, bilinen) kelimeler. */
+  knownWords(length, maxRank = Infinity) {
+    this.knownCache ??= new Map();
+    const key = `${length}:${maxRank}`;
+    if (!this.knownCache.has(key)) {
+      const out = [];
+      for (const [w, r] of this.ranks) if (w.length === length && r <= maxRank) out.push(w);
+      this.knownCache.set(key, out);
+    }
+    return this.knownCache.get(key);
+  }
+
   categoryNames() {
     return Object.keys(this.categories);
   }

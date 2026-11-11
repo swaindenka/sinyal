@@ -771,3 +771,187 @@ test('sonuç anı kısa sürer ve oyun kendiliğinden devam eder', () => {
   assert.equal(h.room.phase, Phase.WORD_SETUP);
   assert.ok(cfg.revealSeconds <= 8);
 });
+
+// ───────── kart modu: sinyal eli ve güç kartları ─────────
+
+function cardRoom(opts = {}) {
+  const config = testConfig({ chaos: { startWord: 999 }, cards: { defaultMode: 'cards', ...(opts.cards || {}) }, ...(opts.config || {}) });
+  return makeRoom({ config, players: opts.players ?? 3 });
+}
+
+function lastHand(h) {
+  return h.sent.filter((m) => m.msg.type === 'hand').pop()?.msg;
+}
+
+test('kart modu: kaptana yasak harf içermeyen bir el dağıtılır ve renkleri gösterilir', () => {
+  const h = cardRoom();
+  start(h);
+  const hand = lastHand(h);
+  assert.equal(h.room.publicState().mode, 'cards');
+  assert.ok(hand, 'el gönderildi');
+  assert.equal(h.sent.filter((m) => m.msg.type === 'hand').every((m) => m.to === h.captain().id), true, 'el yalnızca kaptana gider');
+  const { forbidden, secret } = h.room.word.puzzle;
+  assert.ok(hand.cards.length > 0);
+  for (const c of hand.cards) {
+    assert.ok(![...c.word].some((x) => forbidden.includes(x)), c.word);
+    assert.equal(c.word.length, secret.length);
+    assert.equal(c.colors.length, secret.length);
+  }
+  assert.equal(h.room.publicState().word.handCount, hand.cards.length);
+  assert.ok(!JSON.stringify(h.room.publicState()).includes('"hand"'), 'el ortak durumda yok');
+});
+
+test('kart modu: elden oynanan kartın yerine yenisi gelir; elde olmayan kelime boş kart ister', () => {
+  const h = cardRoom();
+  start(h);
+  h.toSignal();
+  const cap = h.captain();
+  const outside = ['ELMAS', 'HELVA', 'MASAL', 'LAVAŞ', 'ÇALIM'].find((x) => !h.room.word.hand.includes(x) && !h.room.validateSignal(x));
+  if (outside) {
+    h.room.handle(cap.id, { type: 'send_signal', word: outside });
+    assert.equal(h.lastError(cap.id), 'NOT_IN_HAND');
+    assert.equal(h.room.phase, Phase.SIGNAL);
+  }
+  const card = lastHand(h).cards[0].word;
+  const size = h.room.word.hand.length;
+  h.signal(card);
+  assert.equal(h.room.phase, Phase.DISCUSSION);
+  assert.ok(!h.room.word.hand.includes(card));
+  assert.equal(h.room.word.hand.length, size, 'el tamamlandı');
+});
+
+test('kart modu: boş kartla serbest kelime, kelime başına bir kez', () => {
+  const h = cardRoom();
+  start(h);
+  h.toSignal();
+  const cap = h.captain();
+  const free = ['ELMAS', 'HELVA', 'MASAL', 'LAVAŞ'].find((x) => !h.room.word.hand.includes(x) && !h.room.validateSignal(x));
+  h.room.handle(cap.id, { type: 'send_signal', word: free, blank: true });
+  assert.equal(h.room.phase, Phase.DISCUSSION);
+  assert.equal(h.room.word.blankCards, 0);
+  h.room.handle(h.guessers()[0].id, { type: 'propose_pass' });
+  h.room.handle(h.guessers()[1].id, { type: 'approve', proposalId: h.room.word.proposals[0].id });
+  const other = ['ELMAS', 'HELVA', 'MASAL', 'LAVAŞ'].find((x) => x !== free && !h.room.word.hand.includes(x) && !h.room.validateSignal(x));
+  h.room.handle(cap.id, { type: 'send_signal', word: other, blank: true });
+  assert.equal(h.lastError(cap.id), 'NO_BLANK_CARDS');
+});
+
+test('kart modu: eli yenileme kelime başına bir kez', () => {
+  const h = cardRoom();
+  start(h);
+  const cap = h.captain();
+  const before = [...h.room.word.hand];
+  h.room.handle(cap.id, { type: 'redraw_hand' });
+  assert.notDeepEqual(h.room.word.hand, before);
+  assert.ok(!h.room.word.hand.some((x) => before.includes(x)), 'atılan kartlar geri gelmez');
+  h.room.handle(cap.id, { type: 'redraw_hand' });
+  assert.equal(h.lastError(cap.id), 'NO_REDRAWS');
+  h.room.handle(h.guessers()[0].id, { type: 'redraw_hand' });
+  assert.equal(h.lastError(h.guessers()[0].id), 'NOT_ALLOWED_IN_PHASE');
+});
+
+test('oda sahibi modu lobide değiştirir', () => {
+  const h = makeRoom();
+  h.room.handle(h.ps[0].id, { type: 'set_mode', mode: 'cards' });
+  assert.equal(h.room.mode, 'cards');
+  h.room.handle(h.ps[1].id, { type: 'set_mode', mode: 'free' });
+  assert.equal(h.lastError(h.ps[1].id), 'NOT_HOST');
+  h.room.handle(h.ps[0].id, { type: 'set_mode', mode: 'poker' });
+  assert.equal(h.lastError(h.ps[0].id), 'INVALID_MODE');
+});
+
+function givePower(h, type) {
+  const card = { id: `test-${type}`, type };
+  h.room.run.powerHand.push(card);
+  return card.id;
+}
+
+test('güç kartı: oyun başında takım eline 1 kart, seri ve yıldırımla yeni kart', () => {
+  const h = cardRoom({ cards: { defaultMode: 'free', startPowerCards: 1 } });
+  start(h);
+  assert.equal(h.room.run.powerHand.length, 1);
+  h.toSignal();
+  h.signal('ELMAS');
+  h.guess(h.secret()); // yıldırım
+  assert.equal(h.room.reveal.lightning, true);
+  assert.equal(h.room.run.powerHand.length, 2);
+});
+
+test('güç kartı fener: tuzak harfi hariç bir harfi herkese açar; kaptan oynayamaz', () => {
+  const h = cardRoom({ cards: { defaultMode: 'free' } });
+  start(h);
+  h.toSignal();
+  const id = givePower(h, 'fener');
+  h.room.handle(h.captain().id, { type: 'play_power', cardId: id });
+  assert.equal(h.lastError(h.captain().id), 'POWER_NOT_YOURS');
+  h.room.handle(h.guessers()[0].id, { type: 'play_power', cardId: id });
+  const rev = h.room.publicState().word.revealed;
+  assert.equal(rev.length, 1);
+  assert.notEqual(rev[0].pos, h.room.word.puzzle.pos);
+  assert.equal(rev[0].letter, h.room.word.puzzle.secret[rev[0].pos]);
+  assert.equal(h.room.run.powerHand.length, 0);
+});
+
+test('güç kartı kalkan: tuzak tahmini can götürmez, kelime sürer', () => {
+  const h = cardRoom({ cards: { defaultMode: 'free' } });
+  start(h);
+  h.toSignal();
+  h.room.handle(h.guessers()[0].id, { type: 'play_power', cardId: givePower(h, 'kalkan') });
+  h.signal('ELMAS');
+  h.guess(h.trap());
+  assert.equal(h.room.run.lives, 3);
+  assert.equal(h.room.phase, Phase.DISCUSSION);
+  assert.equal(h.room.word.board[1].result, 'shielded');
+  assert.equal(h.room.word.shield, false);
+});
+
+test('güç kartı saat ve ek kart: süre +30 sn, satır +1', () => {
+  const h = cardRoom({ cards: { defaultMode: 'free' } });
+  start(h);
+  h.toSignal();
+  const before = h.room.endsAt;
+  h.room.handle(h.guessers()[0].id, { type: 'play_power', cardId: givePower(h, 'saat') });
+  assert.equal(h.room.endsAt - before, 30_000);
+  h.room.handle(h.captain().id, { type: 'play_power', cardId: givePower(h, 'satir') });
+  assert.equal(h.room.word.rowLimit, 7);
+});
+
+test('güç kartı anahtar: kaptanın sıradaki sinyali yasak harf içerebilir (tek sefer)', () => {
+  const h = cardRoom({ cards: { defaultMode: 'free' } });
+  start(h);
+  h.toSignal();
+  const { forbidden } = h.room.word.puzzle;
+  const bad = ['KABAK', 'KAPAK', 'YÜREK', 'KÜREK', 'KAĞIT', 'KAYIT', 'ŞEHİR', 'ŞEHİT', 'TANIM', 'TARIM', 'BAVUL', 'DAVUL', 'KALAN', 'YALAN', 'SİNEK', 'ÇİLEK']
+    .find((x) => [...x].some((c) => forbidden.includes(c)) && x !== h.secret() && !h.room.word.puzzle.traps.includes(x));
+  h.room.handle(h.captain().id, { type: 'send_signal', word: bad });
+  assert.equal(h.lastError(h.captain().id), 'FORBIDDEN_LETTER');
+  h.room.handle(h.captain().id, { type: 'play_power', cardId: givePower(h, 'anahtar') });
+  h.signal(bad);
+  assert.equal(h.room.phase, Phase.DISCUSSION);
+  assert.equal(h.room.word.forbiddenPass, false);
+});
+
+test('güç kartı sakinleş: kaos kartını iptal eder; kaos yoksa harcanmaz', () => {
+  const config = testConfig({ chaos: { startWord: 1, cards: ['blind'] } });
+  const h = makeRoom({ config });
+  start(h);
+  assert.equal(h.room.word.chaosCard, 'blind');
+  h.room.handle(h.guessers()[0].id, { type: 'play_power', cardId: givePower(h, 'sakin') });
+  assert.equal(h.room.word.chaosCard, null);
+  const id = givePower(h, 'sakin');
+  h.room.handle(h.guessers()[0].id, { type: 'play_power', cardId: id });
+  assert.equal(h.lastError(h.guessers()[0].id), 'POWER_NO_EFFECT');
+  assert.ok(h.room.run.powerHand.some((c) => c.id === id), 'etkisiz kart elde kalır');
+});
+
+test('güç kartı eli dolunca yeni kart kaybolur', () => {
+  const h = cardRoom({ cards: { defaultMode: 'free', powerHandMax: 2 } });
+  start(h);
+  givePower(h, 'saat');
+  givePower(h, 'satir');
+  h.toSignal();
+  h.signal('ELMAS');
+  h.guess(h.secret()); // yıldırım ödülü
+  assert.equal(h.room.run.powerHand.length, 2);
+  assert.ok(h.room.events.some((e) => e.type === 'power_full'));
+});

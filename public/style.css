@@ -2435,26 +2435,30 @@ details.card[open] > summary {
 #g-table {
   order: 5;
 }
-#g-word {
+#g-powers {
   order: 6;
 }
-#g-board {
+#g-word {
   order: 7;
 }
-#g-panel {
+#g-board {
   order: 8;
 }
-.dock {
+#g-panel {
   order: 9;
 }
-#g-tools {
+.dock {
   order: 10;
 }
-.col-side > .rules {
+#g-tools {
   order: 11;
+}
+.col-side > .rules {
+  order: 12;
 }
 
 #g-secret:empty,
+#g-powers:empty,
 #g-info:empty,
 #g-panel:empty,
 #g-word:empty,
@@ -2834,4 +2838,257 @@ body.last-life .pill.hearts {
 
 .table-card {
   position: relative;
+}
+
+/* ───────────── kart modu: kaptanın sinyal eli ───────────── */
+
+.hand {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 10px 4px 6px;
+  scroll-snap-type: x proximity;
+  width: 100%;
+}
+
+.hcard {
+  flex: none;
+  scroll-snap-align: start;
+  width: 132px;
+  min-height: 74px;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 8px;
+  background: var(--card);
+  color: var(--card-ink);
+  box-shadow: var(--card-shadow);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.hcard .wc-word {
+  font-size: calc(104px / var(--len, 5));
+}
+
+.hcard:hover {
+  transform: translateY(-3px);
+}
+
+.hcard.selected {
+  transform: translateY(-8px) rotate(-1.5deg);
+  box-shadow: 0 0 0 3px var(--primary), 0 12px 24px rgba(0, 0, 0, 0.4);
+}
+
+.hand-bar {
+  flex-wrap: wrap;
+}
+
+.hand-bar .btn.primary {
+  flex: 1 1 160px;
+}
+
+.hand-bar .btn.sm {
+  flex: 0 0 auto;
+}
+
+.hand-note {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.hand-count {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* ───────────── güç kartları ───────────── */
+
+.powers {
+  display: grid;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px 14px;
+}
+
+.powers .label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pcards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 8px;
+}
+
+.pcard {
+  --pc: #4a5d86;
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  color: #f4efe3;
+  background: linear-gradient(160deg, var(--pc), #1a2233 120%);
+  box-shadow: var(--card-shadow);
+  min-height: 132px;
+}
+
+.pcard.p-fener {
+  --pc: #b8860b;
+}
+.pcard.p-kalkan {
+  --pc: #2f6fd6;
+}
+.pcard.p-saat {
+  --pc: #6b4fc9;
+}
+.pcard.p-satir {
+  --pc: #2e8f5b;
+}
+.pcard.p-anahtar {
+  --pc: #a6551f;
+}
+.pcard.p-sakin {
+  --pc: #3d8a99;
+}
+
+.pcard.slot-empty {
+  background: transparent;
+  border: 2px dashed var(--border-strong);
+  box-shadow: none;
+  min-height: 132px;
+}
+
+.pc-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pc-top b {
+  font-family: var(--font-card);
+  font-size: 16px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pc-desc {
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0.9;
+}
+
+.pcard .btn {
+  align-self: end;
+  margin-top: auto;
+}
+
+.pcard .btn.ghost {
+  color: #f4efe3;
+  border-color: rgba(255, 255, 255, 0.3);
+  font-size: 12px;
+}
+
+/* Fener ile açılan harf */
+.slot.lit {
+  color: var(--gold);
+  box-shadow: inset 0 -4px 0 var(--gold), 0 0 18px rgba(242, 189, 75, 0.45), var(--card-shadow);
+}
+
+.stamp.shield {
+  border-color: var(--hit);
+  color: var(--hit);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.splash.power b {
+  background: linear-gradient(135deg, #3b4f7a, #1c2740);
+}
+
+/* ───────────── lobi: oyun modu ───────────── */
+
+.seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.seg-opt {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.seg-opt b {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.seg-opt span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.seg-opt.on {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.seg-opt:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.seg-opt:disabled:not(.on) {
+  opacity: 0.55;
+}
+
+@media (max-width: 420px) {
+  .seg {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Telefonda güç kartları yana kayan tek sıra; boş yuvalar yalnızca masaüstünde. */
+@media (max-width: 979px) {
+  .pcards {
+    display: flex;
+    overflow-x: auto;
+    gap: 8px;
+    padding-bottom: 4px;
+    scroll-snap-type: x proximity;
+  }
+  .pcard {
+    flex: none;
+    width: 136px;
+    min-height: 0;
+    scroll-snap-align: start;
+  }
+  .pcard.slot-empty {
+    display: none;
+  }
+  .pc-desc {
+    font-size: 11px;
+  }
 }
