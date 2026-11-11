@@ -68,6 +68,8 @@ export class PuzzleBank {
     if (p.trapCount < lo || p.trapCount > hi) return false;
     if (tier.consonantOnly && !p.consonantOnly) return false;
     if (p.rank > (tier.maxRank ?? this.config.commonWordLimit)) return false;
+    const [dlo, dhi] = tier.difficulty ?? [0, 100];
+    if ((p.difficulty ?? 0) < dlo || (p.difficulty ?? 0) > dhi) return false;
     return true;
   }
 

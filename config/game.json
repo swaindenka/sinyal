@@ -18,7 +18,7 @@
   "emptyRoomSeconds": 900,
   "proposalRateLimitMs": 2000,
   "starMaxSignals": 1,
-  "commonWordLimit": 10000,
+  "commonWordLimit": 12000,
   "requireApprovedPuzzles": false,
   "chaos": {
     "startWord": 4,
@@ -29,10 +29,14 @@
     "moleMinGuessers": 3,
     "categoryMinSignals": 5
   },
+  "puzzleLengths": [5, 6, 7],
+  "showTrapPosition": true,
   "tiers": [
-    { "fromWord": 1,  "lengths": [5],    "trapRange": [1, 1], "rows": 6, "consonantOnly": true,  "maxRank": 4000 },
-    { "fromWord": 4,  "lengths": [5, 6], "trapRange": [1, 1], "rows": 5, "consonantOnly": true,  "maxRank": 6000 },
-    { "fromWord": 7,  "lengths": [6],    "trapRange": [2, 2], "rows": 5, "consonantOnly": false, "maxRank": 8000 },
-    { "fromWord": 10, "lengths": [6, 7], "trapRange": [2, 3], "rows": 4, "consonantOnly": false, "maxRank": 10000 }
+    { "fromWord": 1,  "name": "Isınma",  "lengths": [5],       "trapRange": [1, 1], "rows": 6, "consonantOnly": true, "difficulty": [0, 38] },
+    { "fromWord": 4,  "name": "Kolay",   "lengths": [5, 6],    "trapRange": [1, 1], "rows": 6, "consonantOnly": true, "difficulty": [20, 50] },
+    { "fromWord": 7,  "name": "Orta",    "lengths": [6, 7],    "trapRange": [1, 1], "rows": 5, "difficulty": [30, 60] },
+    { "fromWord": 10, "name": "Zor",     "lengths": [5, 6],    "trapRange": [2, 2], "rows": 5, "difficulty": [35, 65] },
+    { "fromWord": 13, "name": "Çok zor", "lengths": [6, 7],    "trapRange": [2, 2], "rows": 5, "difficulty": [40, 100] },
+    { "fromWord": 16, "name": "Usta",    "lengths": [5, 6, 7], "trapRange": [2, 3], "rows": 4, "difficulty": [50, 100] }
   ]
 }

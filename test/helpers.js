@@ -57,7 +57,7 @@ export const CATEGORIES = { yemek: ['LİMON', 'ÇİLEK', 'KİRAZ', 'ARMUT', 'TAT
 
 function puzzle(secret, traps, pos) {
   const forbidden = [secret[pos], ...traps.map((t) => t[pos])];
-  return { id: `${secret}:${traps.join(',')}`, secret, traps, forbidden, pos, length: secret.length, consonantOnly: true, rank: 10, approved: true };
+  return { id: `${secret}:${traps.join(',')}`, secret, traps, forbidden, pos, length: secret.length, consonantOnly: true, rank: 10, difficulty: 30, approved: true };
 }
 
 export const PUZZLES = [

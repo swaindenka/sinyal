@@ -65,7 +65,36 @@ Tüm sayısal değerler (süreler, can, satır sayıları, eşikler, zorluk sevi
 - `emptyRoomSeconds`: kimsenin bağlı olmadığı odanın silinme süresi
 - `requireApprovedPuzzles`: `true` ise sadece elle onaylanmış bulmacalar kullanılır
 - `chaos.cards`: çekilebilecek kaos kartları
-- `tiers[].maxRank`: o seviyede gizli kelime/tuzakların sıklık sırası üst sınırı (zorluk eğrisi)
+- `puzzleLengths`: bulmaca üretilecek kelime uzunlukları (varsayılan 5, 6, 7)
+- `showTrapPosition`: tahmincilere tuzağın hangi harfte ayrıldığını göster (harfleri değil, yalnızca konumu)
+- `tiers[]`: seviyeler — `name`, hangi kelimeden başladığı (`fromWord`), kelime uzunlukları, tuzak
+  sayısı, satır sayısı, `consonantOnly` ve `difficulty` (0–100 zorluk bandı)
+
+## Zorluk ve seviyeler
+
+Her bulmacaya `scripts/build_data.py` 0–100 arası bir zorluk puanı verir:
+
+| Bileşen | Ağırlık | Neden zorlaştırır |
+|---|---|---|
+| Nadirlik | %42 | Gizli kelime az kullanılıyorsa tahmin etmek zor |
+| Cazip tuzak | %18 | Tuzak gizli kelimeden daha yaygınsa tahminciler oraya kayar (YARAN / YARIN) |
+| Sinyal kıtlığı | %16 | Yasak harfler yüzünden kaptanın kullanabileceği kelime oranı düşük |
+| Şaşırtmaca | %14 | Aynı kalıba uyan, tuzak olmayan başka kelimeler boşa satır harcatır |
+| Sesli fark | %10 | Yasak harflerden biri sesliyse sinyal bulmak çok zorlaşır |
+
+Seviyeler (`config/game.json`):
+
+| Seviye | Kelime | Harf | Tuzak | Satır | Zorluk |
+|---|---|---|---|---|---|
+| 1 Isınma | 1–3 | 5 | 1 (ünsüz farkı) | 6 | 0–38 |
+| 2 Kolay | 4–6 | 5–6 | 1 (ünsüz farkı) | 6 | 20–50 |
+| 3 Orta | 7–9 | 6–7 | 1 | 5 | 30–60 |
+| 4 Zor | 10–12 | 5–6 | 2 | 5 | 35–65 |
+| 5 Çok zor | 13–15 | 6–7 | 2 | 5 | 40–100 |
+| 6 Usta | 16+ | 5–7 | 2–3 | 4 | 50–100 |
+
+Bir seviyede kullanılmamış bulmaca kalmazsa bir alt seviyeden seçilir. `build_data.py` her seviyede
+kaç bulmaca ve gizli kelime olduğunu yazdırır; bantları değiştirdikten sonra çalıştırıp kontrol et.
 
 ## Kelime verisi (Faz 1)
 
@@ -107,8 +136,10 @@ sütununu `1` yap, kaydedip `--approvals` ile uygula, sonra `config/game.json`'d
 - `server/index.js` — HTTP (statik dosyalar, `/health`) + WebSocket (`/ws`)
 - `public/` — derleme gerektirmeyen istemci (HTML/CSS/JS modülleri), Türkçe Q ekran klavyesi.
   Arayüz token tabanlı tek bir tasarım sistemi kullanır (`style.css`), açık/koyu temayı cihaz
-  ayarına göre seçer; ikonlar `icons.js`'teki satır içi SVG'lerdir. Telefonda tek sütun ve
-  ekranın altına sabitlenen klavye, masaüstünde iki sütunlu düzen.
+  ayarına göre seçer; ikonlar `icons.js`'teki satır içi SVG'lerdir. Harf renkleri mavi (tam yer),
+  turuncu (kelimede var) ve gridir (yok). Oyun ekranı: kaptanın ortada oturduğu masa, takımın
+  bildiği harfler ve tuzak konumu, kaptanın sinyallerinin mesaj akışı (tahminler altında yanıt
+  olarak) ve yalnızca yazarken açılan klavye.
 
 Gizli bilgiler (gizli kelime, tuzaklar, yasak harfler, köstebek kimliği) hiçbir zaman herkese
 yayınlanan duruma yazılmaz; sadece ilgili oyuncuya özel mesajla gider ve hesaplaşmada açılır.

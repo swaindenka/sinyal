@@ -1181,6 +1181,9 @@ export class Room {
         forbiddenCount: w.puzzle.forbidden.length,
         rowLimit: w.rowLimit,
         rowsRemaining: this.rowsRemaining(),
+        tier: { level: w.tierIndex + 1, name: this.config.tiers[w.tierIndex]?.name ?? '' },
+        // Tuzağın ayrıldığı konum (harfleri değil). Tahmincilere "bu harfe dikkat" uyarısı için.
+        trapPos: this.config.showTrapPosition ? w.puzzle.pos : null,
         chaosCard: w.chaosCard,
         category: w.category,
         board: w.board.map(({ type, word: text, colors, byPlayerId, result, approvals }) => ({
