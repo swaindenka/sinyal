@@ -67,6 +67,10 @@ Tüm sayısal değerler (süreler, can, satır sayıları, eşikler, zorluk sevi
 - `requireApprovedPuzzles`: `true` ise sadece elle onaylanmış bulmacalar kullanılır
 - `chaos.cards`: çekilebilecek kaos kartları
 - `puzzleLengths`: bulmaca üretilecek kelime uzunlukları (varsayılan 5, 6, 7)
+- `excitement`: heyecan özellikleri — seri bonusu (`streakEvery`, `streakBankBonus`), yıldırım
+  (`lightningSeconds`, `lightningBankBonus`), altın kelime (`goldenStartWord`, `goldenChance`,
+  `goldenRowPenalty`) ve tepki emojileri (`reactions`, `reactionRateLimitMs`). Bonusları kapatmak
+  için ilgili değeri 0 yap.
 - `showTrapPosition`: tahmincilere tuzağın hangi harfte ayrıldığını göster (harfleri değil, yalnızca konumu)
 - `tiers[]`: seviyeler — `name`, hangi kelimeden başladığı (`fromWord`), kelime uzunlukları, tuzak
   sayısı, satır sayısı, `consonantOnly` ve `difficulty` (0–100 zorluk bandı)
@@ -150,6 +154,10 @@ Sayaçlar sunucuda tutulur; istemciye `endsAt` gönderilir, istemci sadece geri 
 ### Spec'ten bilinçli farklar
 
 - **En az 2 oyuncu** (spec'te 3): iki kişide tek tahminci olduğu için öneriler hemen gönderilir.
+- **Hesaplaşma kısaltıldı** (spec'te 30 sn, kaptan sinyallerini açıklar): yerine 6 sn'lik sonuç anı
+  gelir ve oyun kendiliğinden devam eder; oda sahibi "Devam" ile daha erken geçebilir.
+- **Heyecan özellikleri** (spec'te yok): seri ve yıldırım bonusları, altın kelime, son can modu,
+  son 10 saniye uyarısı, büyük duyurular ve tepki emojileri (kaptan kelime sürerken tepki veremez).
 
 - **Next.js + Colyseus yerine** sade Node.js + `ws` ve derlemesiz bir istemci kullanıldı:
   tek bir Render Web Service olarak `npm start` ile çalışır, build adımı yoktur.

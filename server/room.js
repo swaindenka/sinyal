@@ -135,7 +135,7 @@ export class Room {
 
   emit(type, data = {}) {
     this.events.push({ seq: ++this.eventSeq, type, at: this.now(), ...data });
-    if (this.events.length > 12) this.events.shift();
+    if (this.events.length > 24) this.events.shift();
   }
 
   /** Durumu bir sonraki mikro görevde herkese yayınlar (aynı anda gelen değişiklikler tek yayında). */
@@ -540,6 +540,9 @@ export class Room {
           this.requireHost(p);
           this.kick(p, msg.playerId);
           return;
+        case 'react':
+          this.react(p, msg.emoji);
+          break;
         case 'leave':
           this.markLeft(p.id);
           return;
@@ -578,6 +581,20 @@ export class Room {
     const now = this.now();
     if (now - p.lastProposalAt < this.config.proposalRateLimitMs) throw new GameError('RATE_LIMITED');
     p.lastProposalAt = now;
+  }
+
+  /**
+   * Hızlı tepki (👏 🔥 …). Kaptan kelime sürerken tepki veremez: konuşma yasağı gibi,
+   * tepkiyle de ipucu verilmesin.
+   */
+  react(p, emoji) {
+    const list = this.config.excitement?.reactions ?? [];
+    if (!list.includes(emoji)) throw new GameError('INVALID_REACTION');
+    if (this.word && WORD_PHASES.has(this.phase) && this.word.captainId === p.id) throw new GameError('CAPTAIN_SILENT');
+    const now = this.now();
+    if (now - (p.lastReactAt ?? -Infinity) < (this.config.excitement?.reactionRateLimitMs ?? 800)) throw new GameError('RATE_LIMITED');
+    p.lastReactAt = now;
+    this.emit('react', { playerId: p.id, emoji });
   }
 
   /** Oda sahibi bir oyuncuyu çıkarır (ör. ekran başında olmayan biri onay eşiğini tıkıyorsa). */
@@ -631,6 +648,8 @@ export class Room {
       score: 0,
       stars: 0,
       wordIndex: 0,
+      streak: 0,
+      bestStreak: 0,
       captainCursor: -1,
       usedSecrets: new Set(),
       words: [],
@@ -722,11 +741,17 @@ export class Room {
     this.reveal = null;
     const { startWord, every } = this.config.chaos;
     if (run.wordIndex >= startWord && (run.wordIndex - startWord) % every === 0) this.drawChaosCard();
+    // Altın kelime: kaos kartı olmayan bir kelimede ara sıra; bir satır eksik, çözülürse +1 can.
+    const fx = this.config.excitement ?? {};
+    if (!this.word.chaosCard && run.wordIndex >= (fx.goldenStartWord ?? Infinity) && this.rng() < (fx.goldenChance ?? 0)) {
+      this.word.golden = true;
+      this.word.rowLimit = Math.max(3, this.word.rowLimit - (fx.goldenRowPenalty ?? 1));
+    }
 
     this.clearCaptainWait();
     this.updatePlayersPause(Phase.WORD_SETUP);
     this.setPhase(Phase.WORD_SETUP, this.config.setupSeconds);
-    this.emit('word_start', { wordIndex: run.wordIndex, captainId, chaosCard: this.word.chaosCard });
+    this.emit('word_start', { wordIndex: run.wordIndex, captainId, chaosCard: this.word.chaosCard, golden: Boolean(this.word.golden) });
     this.sendPrivate(captainId);
     if (this.word.moleId) this.sendPrivate(this.word.moleId);
   }
@@ -780,6 +805,7 @@ export class Room {
   }
 
   enterDiscussion() {
+    this.word.discussionStartedAt = this.now();
     this.word.proposals = [];
     this.word.guessesThisDiscussion = 0;
     this.setPhase(Phase.DISCUSSION, this.discussionSeconds());
@@ -997,11 +1023,37 @@ export class Room {
     const rowsUsed = w.board.length;
     const outcome = { bankGained: 0, star: false, lifeGained: false, lifeLost: false };
 
-    if (result === 'solved') {
+    const fx = cfg.excitement ?? {};
+    const addBank = (n) => {
       const before = run.bank;
-      run.bank = Math.min(cfg.bankMax, run.bank + Math.max(0, w.rowLimit - rowsUsed));
-      outcome.bankGained = run.bank - before;
+      run.bank = Math.min(cfg.bankMax, run.bank + n);
+      return run.bank - before;
+    };
+    if (result === 'solved') {
+      outcome.bankGained = addBank(Math.max(0, w.rowLimit - rowsUsed));
       run.score += 1;
+      run.streak += 1;
+      run.bestStreak = Math.max(run.bestStreak, run.streak);
+      outcome.streak = run.streak;
+      // Seri: üst üste her N çözümde kumbaraya bonus
+      if (fx.streakEvery && fx.streakBankBonus && run.streak % fx.streakEvery === 0) {
+        outcome.streakBonus = addBank(fx.streakBankBonus);
+        outcome.bankGained += outcome.streakBonus;
+      }
+      // Yıldırım: tartışma başladıktan kısa süre içinde çözüm
+      const elapsed = this.now() - (w.discussionStartedAt ?? 0);
+      if (fx.lightningSeconds && fx.lightningBankBonus && this.phase === Phase.DISCUSSION && elapsed <= fx.lightningSeconds * 1000) {
+        outcome.lightning = true;
+        outcome.bankGained += addBank(fx.lightningBankBonus);
+      }
+      // Altın kelime: +1 can (can doluysa +2 kumbara)
+      if (w.golden) {
+        if (run.lives < cfg.maxLives) {
+          run.lives += 1;
+          outcome.goldenLife = true;
+        } else outcome.bankGained += addBank(2);
+        outcome.golden = true;
+      }
       if (w.signalsUsed <= cfg.starMaxSignals) {
         run.stars += 1;
         outcome.star = true;
@@ -1013,6 +1065,8 @@ export class Room {
     } else if (result === 'trap' || result === 'rows') {
       run.lives = Math.max(0, run.lives - 1);
       outcome.lifeLost = true;
+      outcome.streakLost = run.streak;
+      run.streak = 0;
     }
     w.outcome = outcome;
 
@@ -1045,10 +1099,12 @@ export class Room {
       chaosCard: w.chaosCard,
       category: w.category,
       star: outcome.star,
+      golden: Boolean(w.golden),
+      lightning: Boolean(outcome.lightning),
     });
     this.store?.markUsed(this.teamName, w.puzzle.secret);
     this.teamUsed?.add(w.puzzle.secret);
-    this.emit('word_end', { result, wordIndex: run.wordIndex });
+    this.emit('word_end', { result, wordIndex: run.wordIndex, lives: run.lives, ...outcome });
 
     if (result === 'cancelled') {
       // Kaptan dönmedi: can kaybı yok, sıradaki kaptanla yeni kelime.
@@ -1115,7 +1171,7 @@ export class Room {
     this.enterReveal();
   }
 
-  // ── hesaplaşma (spec 4.6) ──
+  // ── sonuç (spec 4.6'daki hesaplaşma kısaltıldı: kısa sonuç anı, sonra otomatik devam) ──
 
   enterReveal() {
     const w = this.word;
@@ -1154,6 +1210,7 @@ export class Room {
       teamName: this.teamName,
       score: run.score,
       stars: run.stars,
+      bestStreak: run.bestStreak,
       words: run.words,
       record,
       awards: computeAwards(participants),
@@ -1201,6 +1258,7 @@ export class Room {
         thresholds: { guess: Math.floor(guessers.length / 2) + 1, bank: guessers.length },
         votedIds: this.phase === Phase.MOLE_VOTE ? [...w.votes.keys()] : null,
         hasMole: Boolean(w.moleId),
+        golden: Boolean(w.golden),
       };
     }
     return {
@@ -1219,6 +1277,7 @@ export class Room {
       devMode: this.config.devMode,
       minPlayers: this.config.minPlayers,
       maxPlayers: this.config.maxPlayers,
+      reactions: this.config.excitement?.reactions ?? [],
       players: this.orderedPlayers().map((p) => ({ id: p.id, name: p.name, connected: p.connected, ready: p.ready })),
       run: run
         ? {
@@ -1230,6 +1289,8 @@ export class Room {
             stars: run.stars,
             wordIndex: run.wordIndex,
             lifeEverySolved: this.config.lifeEverySolved,
+            streak: run.streak,
+            bestStreak: run.bestStreak,
           }
         : null,
       record: team ? { bestScore: team.bestScore, bestStars: team.bestStars, runs: team.runs } : null,

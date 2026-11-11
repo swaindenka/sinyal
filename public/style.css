@@ -2558,3 +2558,280 @@ details.card[open] > summary {
     transition: none !important;
   }
 }
+
+/* ───────────── heyecan: duyurular, konfeti, sarsıntı, seri, altın, son can ───────────── */
+
+#fx {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 70;
+  overflow: hidden;
+}
+
+.splash {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  text-align: center;
+  animation: splash 1.9s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  width: min(92vw, 520px);
+}
+
+.splash b {
+  font-family: var(--font-card);
+  font-weight: 700;
+  font-size: clamp(44px, 13vw, 84px);
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: #fff;
+  padding: 6px 22px 10px;
+  border-radius: 12px;
+  background: var(--card-captain);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  transform: rotate(-3deg);
+}
+
+.splash span {
+  font-weight: 700;
+  font-size: 15px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.splash.good b {
+  background: var(--green);
+}
+
+.splash.bad b {
+  background: var(--card-trap);
+  color: var(--red);
+  box-shadow: 0 0 0 4px var(--red), 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+
+.splash.gold b {
+  background: linear-gradient(135deg, #f6d36b, #c98a12);
+  color: #2b1d02;
+}
+
+.splash.chaos b {
+  background: #5b2bbf;
+}
+
+@keyframes splash {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.4);
+  }
+  14% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+  22% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  80% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -60%) scale(0.96);
+  }
+}
+
+.confetti {
+  position: absolute;
+  top: -12px;
+  width: 9px;
+  height: 14px;
+  border-radius: 2px;
+  animation: confetti-fall linear forwards;
+}
+
+@keyframes confetti-fall {
+  to {
+    transform: translate(var(--dx), 105vh) rotate(var(--rot));
+    opacity: 0.9;
+  }
+}
+
+.flash-red {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, transparent 40%, rgba(239, 90, 98, 0.55));
+  animation: flash 0.7s ease-out forwards;
+}
+
+@keyframes flash {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.shake {
+  animation: shake 0.45s ease;
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: none;
+  }
+  20% {
+    transform: translateX(-10px) rotate(-0.6deg);
+  }
+  40% {
+    transform: translateX(9px) rotate(0.5deg);
+  }
+  60% {
+    transform: translateX(-6px);
+  }
+  80% {
+    transform: translateX(4px);
+  }
+}
+
+.float-emoji {
+  position: fixed;
+  transform: translate(-50%, 0);
+  font-size: 30px;
+  animation: float-up 1.6s ease-out forwards;
+}
+
+@keyframes float-up {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 0) scale(0.5);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -20px) scale(1.2);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -120px) scale(1);
+  }
+}
+
+/* Son 10 saniye: sıra kartı nabız gibi atar */
+.turn.urgent {
+  border-color: var(--red);
+  animation: pulse-red 1s ease-in-out infinite;
+}
+
+.turn.urgent .turn-icon {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+@keyframes pulse-red {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 90, 98, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(239, 90, 98, 0);
+  }
+}
+
+/* Son can: ekran kenarında kırmızı çerçeve */
+body.last-life::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+  box-shadow: inset 0 0 0 3px var(--red), inset 0 0 60px rgba(239, 90, 98, 0.35);
+  animation: last-life 2.4s ease-in-out infinite;
+}
+
+body.last-life .pill.hearts {
+  border-color: var(--red);
+  animation: pulse-red 1.2s ease-in-out infinite;
+}
+
+@keyframes last-life {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Seri */
+.pill.streak {
+  color: #ff8a3d;
+  border-color: rgba(255, 138, 61, 0.45);
+  background: rgba(255, 138, 61, 0.12);
+}
+
+.pill.streak .ic {
+  color: #ff8a3d;
+}
+
+.tag.streak {
+  background: rgba(255, 138, 61, 0.15);
+  color: #ff8a3d;
+}
+
+.tag.gold {
+  background: var(--gold-soft);
+  color: var(--gold);
+}
+
+/* Altın kelime */
+.target-card.golden {
+  border-color: #e0b13a;
+  box-shadow: 0 0 0 2px rgba(224, 177, 58, 0.5), 0 0 30px rgba(224, 177, 58, 0.25);
+}
+
+.golden-banner {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f6d36b, #c98a12);
+  color: #2b1d02;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Tepkiler */
+.reactions {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.react-btn {
+  width: 38px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 18px;
+  cursor: pointer;
+  transition: transform 0.08s;
+}
+
+.react-btn:active {
+  transform: scale(0.88);
+}
+
+.table-card {
+  position: relative;
+}

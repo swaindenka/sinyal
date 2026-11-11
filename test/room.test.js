@@ -691,3 +691,83 @@ test('2 oyuncu: kaptanlık sırayla geçer, köstebek kartı çekilmez', () => {
   h.room.handle(h.room.hostId, { type: 'skip_reveal' });
   assert.notEqual(h.captain().id, first);
 });
+
+test('seri: üst üste 3 çözümde kumbaraya +1, tuzakta seri sıfırlanır', () => {
+  const config = testConfig({ chaos: { startWord: 999 }, excitement: { streakBankBonus: 1 } });
+  const h = makeRoom({ config });
+  start(h);
+  for (let i = 0; i < 3; i++) {
+    h.toSignal();
+    h.signal('ELMAS');
+    if (i === 2) h.room.run.bank = 0; // üst sınıra (10) takılmasın
+    h.guess(h.secret());
+    if (i < 2) h.room.handle(h.room.hostId, { type: 'skip_reveal' });
+  }
+  assert.equal(h.room.run.streak, 3);
+  assert.equal(h.room.reveal.streakBonus, 1);
+  assert.equal(h.room.run.bank, 5); // 4 artan satır + 1 seri bonusu
+  h.room.handle(h.room.hostId, { type: 'skip_reveal' });
+  h.toSignal();
+  h.signal('ELMAS');
+  h.guess(h.trap());
+  assert.equal(h.room.run.streak, 0);
+  assert.equal(h.room.run.bestStreak, 3);
+});
+
+test('yıldırım: tartışma başladıktan sonra hızlı çözüm kumbaraya +1, geç çözüm vermez', () => {
+  const config = testConfig({ chaos: { startWord: 999 }, excitement: { lightningBankBonus: 1, lightningSeconds: 20 } });
+  const h = makeRoom({ config });
+  start(h);
+  h.toSignal();
+  h.signal('ELMAS');
+  h.guess(h.secret()); // 2 sn içinde
+  assert.equal(h.room.reveal.lightning, true);
+  assert.equal(h.room.run.bank, 5); // 4 artan satır + 1
+  h.room.handle(h.room.hostId, { type: 'skip_reveal' });
+  h.toSignal();
+  h.signal('ELMAS');
+  h.clock.advance(30_000);
+  h.guess(h.secret());
+  assert.ok(!h.room.reveal.lightning);
+});
+
+test('altın kelime: bir satır eksik, çözülürse +1 can', () => {
+  const config = testConfig({ chaos: { startWord: 999 }, excitement: { goldenStartWord: 1, goldenChance: 1 } });
+  const h = makeRoom({ config });
+  start(h);
+  assert.equal(h.room.word.golden, true);
+  assert.equal(h.room.word.rowLimit, 5);
+  assert.equal(h.room.publicState().word.golden, true);
+  h.room.run.lives = 2;
+  h.toSignal();
+  h.signal('ELMAS');
+  h.guess(h.secret());
+  assert.equal(h.room.run.lives, 3);
+  assert.equal(h.room.reveal.goldenLife, true);
+});
+
+test('tepkiler: tahminci gönderebilir, kaptan kelime sürerken gönderemez', () => {
+  const h = makeRoom();
+  start(h);
+  const g = h.guessers()[0];
+  h.room.handle(g.id, { type: 'react', emoji: '🔥' });
+  assert.ok(h.room.events.some((e) => e.type === 'react' && e.playerId === g.id && e.emoji === '🔥'));
+  h.room.handle(g.id, { type: 'react', emoji: '🔥' });
+  assert.equal(h.lastError(g.id), 'RATE_LIMITED');
+  h.room.handle(g.id, { type: 'react', emoji: '<script>' });
+  assert.equal(h.lastError(g.id), 'INVALID_REACTION');
+  h.room.handle(h.captain().id, { type: 'react', emoji: '👏' });
+  assert.equal(h.lastError(h.captain().id), 'CAPTAIN_SILENT');
+});
+
+test('sonuç anı kısa sürer ve oyun kendiliğinden devam eder', () => {
+  const h = makeRoom();
+  start(h);
+  h.toSignal();
+  h.signal('ELMAS');
+  h.guess(h.secret());
+  assert.equal(h.room.phase, Phase.REVEAL);
+  h.clock.advance(cfg.revealSeconds * 1000);
+  assert.equal(h.room.phase, Phase.WORD_SETUP);
+  assert.ok(cfg.revealSeconds <= 8);
+});
