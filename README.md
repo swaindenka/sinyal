@@ -1,11 +1,31 @@
 # SİNYAL
 
-Takımca, sesli iletişimle (Discord vb.) oynanan, gerçek zamanlı bir Türkçe kelime oyunu.
+Takımca, sesli iletişimle (Discord vb.) oynanan, gerçek zamanlı bir Türkçe **kelime kartı** oyunu.
 Kaptan gizli kelimeyi bilir ama konuşamaz; sadece **sinyal kelimeleri** gönderir. Her sinyal
 hem **anlamıyla** hem de **Wordle renkleriyle** bilgi taşır. Tahminciler tuzaklara düşmeden
 gizli kelimeyi bulmaya çalışır.
 
 Kuralların tamamı: [`docs/SINYAL_SPEC.md`](docs/SINYAL_SPEC.md)
+
+## Kart konsepti
+
+- **Sinyal eli (kart modu, varsayılan):** kaptan yazmaz; her kelimede eline 8 sinyal kartı
+  dağıtılır ve sinyal aşamasında birini oynar, yerine desteden yenisi gelir. Kartlar yasak harf
+  içermeyen bilinen kelimelerdir; bir kısmı gizli kelimeyle çok harf paylaşır (harfçe güçlü),
+  kalanı rastgeledir. Kaptan kartların renk çizgilerini önceden görür. Kelime başına 1 kez **eli
+  yenileme** ve 1 **boş kart** (istediği kelimeyi yazma) hakkı vardır. Oda sahibi lobide
+  "Serbest yazma" moduna geçebilir.
+- **Güç kartları:** seri (üst üste 3 çözüm), yıldırım (20 sn içinde çözüm) ve altın kelime takıma
+  güç kartı kazandırır; oyun 1 kartla başlar, elde en fazla 5 kart durur.
+
+| Kart | Etki | Kim oynar |
+|---|---|---|
+| Fener | Gizli kelimenin bir harfini açar (tuzak harfi hariç) | Tahminci |
+| Kalkan | Sıradaki tuzak tahmini can götürmez | Tahminci |
+| Saat | Aşamaya +30 sn | Herkes |
+| Ek kart | Bu kelimeye +1 satır | Herkes |
+| Anahtar | Kaptanın sıradaki sinyali yasak harf içerebilir | Kaptan |
+| Sakinleş | O anki kaos kartını iptal eder | Herkes |
 
 ## Hızlı başlangıç
 
@@ -67,6 +87,11 @@ Tüm sayısal değerler (süreler, can, satır sayıları, eşikler, zorluk sevi
 - `requireApprovedPuzzles`: `true` ise sadece elle onaylanmış bulmacalar kullanılır
 - `chaos.cards`: çekilebilecek kaos kartları
 - `puzzleLengths`: bulmaca üretilecek kelime uzunlukları (varsayılan 5, 6, 7)
+- `cards`: kart modu — `defaultMode` (`cards` / `free`), `handSize`, `helpfulCards` (harfçe güçlü
+  kart sayısı), `redrawsPerWord`, `blankCardsPerWord`, `poolRank` (kartların seçildiği yaygın kelime
+  sınırı), `powerHandMax`, `startPowerCards`, hangi bonusların güç kartı verdiği
+  (`powerOnStreak`, `powerOnLightning`, `powerOnGolden`), `timeBonusSeconds` ve güç kartı
+  ağırlıkları (`powers`; 0 o kartı kapatır).
 - `excitement`: heyecan özellikleri — seri bonusu (`streakEvery`, `streakBankBonus`), yıldırım
   (`lightningSeconds`, `lightningBankBonus`), altın kelime (`goldenStartWord`, `goldenChance`,
   `goldenRowPenalty`) ve tepki emojileri (`reactions`, `reactionRateLimitMs`). Bonusları kapatmak
@@ -156,6 +181,8 @@ Sayaçlar sunucuda tutulur; istemciye `endsAt` gönderilir, istemci sadece geri 
 - **En az 2 oyuncu** (spec'te 3): iki kişide tek tahminci olduğu için öneriler hemen gönderilir.
 - **Hesaplaşma kısaltıldı** (spec'te 30 sn, kaptan sinyallerini açıklar): yerine 6 sn'lik sonuç anı
   gelir ve oyun kendiliğinden devam eder; oda sahibi "Devam" ile daha erken geçebilir.
+- **Kart modu ve güç kartları** (spec'te yok): kaptan varsayılan olarak elinden sinyal kartı oynar;
+  seri/yıldırım/altın ödülleri kumbara satırı yerine güç kartıdır.
 - **Heyecan özellikleri** (spec'te yok): seri ve yıldırım bonusları, altın kelime, son can modu,
   son 10 saniye uyarısı, büyük duyurular ve tepki emojileri (kaptan kelime sürerken tepki veremez).
 

@@ -79,6 +79,8 @@ export function testConfig(overrides = {}) {
     ...overrides,
     chaos: { ...config.chaos, ...(overrides.chaos || {}) },
     excitement: { ...config.excitement, ...quiet, ...(overrides.excitement || {}) },
+    // Eski testler serbest yazma moduyla çalışır; kart modu testleri bunu açıkça açar.
+    cards: { ...config.cards, defaultMode: 'free', startPowerCards: 0, ...(overrides.cards || {}) },
   };
 }
 

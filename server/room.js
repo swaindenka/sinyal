@@ -5,6 +5,8 @@
 import { randomBytes } from 'node:crypto';
 import { score, blindColors } from './score.js';
 import { normalize, isAlphabetic, cleanLabel } from './turkish.js';
+import { GameError } from './errors.js';
+import { dealHand, replaceCard, redrawHand, drawPower, playPower } from './cards.js';
 
 export const Phase = Object.freeze({
   LOBBY: 'LOBBY',
@@ -21,13 +23,7 @@ const WORD_PHASES = new Set([Phase.WORD_SETUP, Phase.SIGNAL, Phase.DISCUSSION]);
 /** Sayaç işleyen, duraklatılabilen aşamalar. */
 const ACTIVE_PHASES = new Set([...WORD_PHASES, Phase.MOLE_VOTE, Phase.REVEAL]);
 
-export class GameError extends Error {
-  constructor(code, detail) {
-    super(code);
-    this.code = code;
-    this.detail = detail;
-  }
-}
+export { GameError };
 
 const realClock = {
   now: () => Date.now(),
@@ -88,6 +84,8 @@ export class Room {
     this.orderCustomized = false;
     this.hostId = null;
     this.teamName = '';
+    // 'cards': kaptan elindeki sinyal kartlarından oynar; 'free': sinyali serbestçe yazar
+    this.mode = this.config.cards?.defaultMode === 'free' ? 'free' : 'cards';
 
     this.phase = Phase.LOBBY;
     this.endsAt = null;
@@ -397,6 +395,28 @@ export class Room {
     if (w.moleId === playerId) {
       this.send(playerId, { type: 'mole_info', wordIndex: this.run.wordIndex, secret, traps, forbidden });
     }
+    if (w.captainId === playerId) this.sendHand();
+  }
+
+  /** Kaptanın sinyal eli (kart modu): her kartla birlikte, oynanınca çıkacak renkler. */
+  sendHand() {
+    const w = this.word;
+    if (!w || this.mode !== 'cards' || !WORD_PHASES.has(this.phase)) return;
+    this.send(w.captainId, {
+      type: 'hand',
+      wordIndex: this.run.wordIndex,
+      cards: w.hand.map((word) => ({ word, colors: this.colorsFor(word) })),
+      redraws: w.handRedraws,
+      blanks: w.blankCards,
+      forbiddenPass: w.forbiddenPass,
+    });
+  }
+
+  /** Güç kartı "saat": o anki aşamanın süresini uzatır. */
+  extendPhase(ms) {
+    this.phaseDuration = (this.phaseDuration ?? 0) + ms;
+    if (this.endsAt != null) this.schedule(this.endsAt - this.now() + ms);
+    else if (this.pausedRemaining != null) this.pausedRemaining += ms;
   }
 
   // ───────────────────────── sayaçlar ve duraklatma ─────────────────────────
@@ -481,6 +501,23 @@ export class Room {
           this.requirePhase(Phase.LOBBY, Phase.RUN_END);
           p.ready = msg.ready === undefined ? !p.ready : Boolean(msg.ready);
           break;
+        case 'set_mode':
+          this.requireHost(p);
+          this.requirePhase(Phase.LOBBY, Phase.RUN_END);
+          if (!['cards', 'free'].includes(msg.mode)) throw new GameError('INVALID_MODE');
+          this.mode = msg.mode;
+          break;
+        case 'redraw_hand':
+          this.requireCaptain(p);
+          if (this.mode !== 'cards' || !WORD_PHASES.has(this.phase)) throw new GameError('NOT_ALLOWED_IN_PHASE');
+          this.requireActive();
+          redrawHand(this);
+          this.emit('redraw', { playerId: p.id });
+          this.sendHand();
+          break;
+        case 'play_power':
+          playPower(this, p, msg.cardId);
+          break;
         case 'set_team':
           this.requireHost(p);
           this.requirePhase(Phase.LOBBY, Phase.RUN_END);
@@ -519,7 +556,7 @@ export class Room {
           this.previewSignal(p, msg.word);
           return; // yayın gerekmez
         case 'send_signal':
-          this.sendSignal(p, msg.word);
+          this.sendSignal(p, msg.word, { blank: msg.blank === true });
           break;
         case 'propose_guess':
           this.proposeGuess(p, msg.word);
@@ -654,12 +691,14 @@ export class Room {
       usedSecrets: new Set(),
       words: [],
       participants: new Set(this.activePlayers().map((p) => p.id)),
+      powerHand: [],
       startedAt: this.now(),
     };
     this.summary = null;
     this.reveal = null;
     this.pauseReasons.clear();
     this.emit('run_start');
+    for (let i = 0; i < (this.config.cards?.startPowerCards ?? 0); i++) drawPower(this, 'start');
     this.startWord();
   }
 
@@ -737,6 +776,13 @@ export class Room {
       votes: new Map(),
       moleVoteSkipped: false,
       result: null,
+      hand: [],
+      discarded: new Set(),
+      handRedraws: 0,
+      blankCards: 0,
+      revealed: new Map(), // güç kartı "fener" ile açılan harfler
+      shield: false, // güç kartı "kalkan"
+      forbiddenPass: false, // güç kartı "anahtar"
     };
     this.reveal = null;
     const { startWord, every } = this.config.chaos;
@@ -748,6 +794,7 @@ export class Room {
       this.word.rowLimit = Math.max(3, this.word.rowLimit - (fx.goldenRowPenalty ?? 1));
     }
 
+    if (this.mode === 'cards') dealHand(this);
     this.clearCaptainWait();
     this.updatePlayersPause(Phase.WORD_SETUP);
     this.setPhase(Phase.WORD_SETUP, this.config.setupSeconds);
@@ -820,7 +867,7 @@ export class Room {
 
   validateSignal(word) {
     const { secret, forbidden } = this.word.puzzle;
-    if ([...word].some((c) => forbidden.includes(c))) return 'FORBIDDEN_LETTER';
+    if (!this.word.forbiddenPass && [...word].some((c) => forbidden.includes(c))) return 'FORBIDDEN_LETTER';
     if (word.length !== secret.length) return 'WRONG_LENGTH';
     if (!isAlphabetic(word) || !this.dictionary.has(word)) return 'NOT_IN_DICTIONARY';
     if (this.word.used.has(word)) return 'ALREADY_USED';
@@ -837,18 +884,27 @@ export class Room {
     this.send(p.id, { type: 'signal_preview', word, colors, error });
   }
 
-  sendSignal(p, raw) {
+  sendSignal(p, raw, { blank = false } = {}) {
     this.requirePhase(Phase.SIGNAL);
     this.requireCaptain(p);
     this.requireActive();
+    const w = this.word;
     const word = normalize(raw).slice(0, WORD_MAX);
+    // Kart modunda kaptan elinden oynar; boş kart ya da "anahtar" ile serbest yazabilir.
+    const fromHand = this.mode === 'cards' && w.hand.includes(word);
+    const useBlank = this.mode === 'cards' && !fromHand && !w.forbiddenPass;
+    if (useBlank && (!blank || w.blankCards <= 0)) throw new GameError(w.blankCards > 0 ? 'NOT_IN_HAND' : 'NO_BLANK_CARDS');
     const error = this.validateSignal(word);
     if (error) throw new GameError(error);
-    this.word.used.add(word);
+    if (useBlank) w.blankCards -= 1;
+    w.forbiddenPass = false;
+    this.word.used.add(word); // yeni kart çekilmeden önce: oynanan kart desteye geri dönmesin
+    if (fromHand) replaceCard(this, word);
     this.word.board.push({ type: 'signal', word, colors: this.colorsFor(word), byPlayerId: p.id });
     this.word.signalsUsed += 1;
     this.emit('signal', { word });
     this.enterDiscussion();
+    this.sendHand();
   }
 
   // ── tartışma (spec 4.4) ──
@@ -990,7 +1046,13 @@ export class Room {
     const { secret, traps } = w.puzzle;
     w.proposals = [];
     const word = prop.word;
-    const result = word === secret ? 'correct' : traps.includes(word) ? 'trap' : 'wrong';
+    let result = word === secret ? 'correct' : traps.includes(word) ? 'trap' : 'wrong';
+    if (result === 'trap' && w.shield) {
+      // Güç kartı "kalkan": tuzak can götürmez, yanlış tahmin gibi sayılır.
+      w.shield = false;
+      result = 'shielded';
+      this.emit('shield', { word });
+    }
     w.used.add(word);
     w.board.push({ type: 'guess', word, colors: this.colorsFor(word), byPlayerId: prop.byPlayerId, approvals: prop.approvals, result });
 
@@ -1004,7 +1066,7 @@ export class Room {
     if (result === 'correct') return this.finishWord('solved');
     if (result === 'trap') return this.finishWord('trap');
 
-    this.emit('wrong_guess', { word });
+    if (result === 'wrong') this.emit('wrong_guess', { word });
     if (this.rowsRemaining() <= 0) return this.finishWord('rows');
     w.guessesThisDiscussion += 1;
     if (w.guessesThisDiscussion >= this.config.maxGuessesPerDiscussion) this.enterSignal();
@@ -1035,18 +1097,24 @@ export class Room {
       run.streak += 1;
       run.bestStreak = Math.max(run.bestStreak, run.streak);
       outcome.streak = run.streak;
-      // Seri: üst üste her N çözümde kumbaraya bonus
-      if (fx.streakEvery && fx.streakBankBonus && run.streak % fx.streakEvery === 0) {
-        outcome.streakBonus = addBank(fx.streakBankBonus);
+      const cards = cfg.cards ?? {};
+      outcome.powers = [];
+      // Seri: üst üste her N çözümde bonus (kumbara ve/veya güç kartı)
+      if (fx.streakEvery && run.streak % fx.streakEvery === 0) {
+        outcome.streakBonus = fx.streakBankBonus ? addBank(fx.streakBankBonus) : 0;
         outcome.bankGained += outcome.streakBonus;
+        outcome.streakReward = true;
+        if (cards.powerOnStreak) outcome.powers.push(drawPower(this, 'streak'));
       }
       // Yıldırım: tartışma başladıktan kısa süre içinde çözüm
       const elapsed = this.now() - (w.discussionStartedAt ?? 0);
-      if (fx.lightningSeconds && fx.lightningBankBonus && this.phase === Phase.DISCUSSION && elapsed <= fx.lightningSeconds * 1000) {
+      if (fx.lightningSeconds && this.phase === Phase.DISCUSSION && elapsed <= fx.lightningSeconds * 1000) {
         outcome.lightning = true;
-        outcome.bankGained += addBank(fx.lightningBankBonus);
+        if (fx.lightningBankBonus) outcome.bankGained += addBank(fx.lightningBankBonus);
+        if (cards.powerOnLightning) outcome.powers.push(drawPower(this, 'lightning'));
       }
       // Altın kelime: +1 can (can doluysa +2 kumbara)
+      if (w.golden && cfg.cards?.powerOnGolden) outcome.powers.push(drawPower(this, 'golden'));
       if (w.golden) {
         if (run.lives < cfg.maxLives) {
           run.lives += 1;
@@ -1068,6 +1136,7 @@ export class Room {
       outcome.streakLost = run.streak;
       run.streak = 0;
     }
+    if (outcome.powers) outcome.powers = outcome.powers.filter(Boolean);
     w.outcome = outcome;
 
     const captain = this.players.get(w.captainId);
@@ -1238,6 +1307,10 @@ export class Room {
         forbiddenCount: w.puzzle.forbidden.length,
         rowLimit: w.rowLimit,
         rowsRemaining: this.rowsRemaining(),
+        handCount: this.mode === 'cards' ? w.hand.length : null,
+        revealed: [...w.revealed].map(([pos, letter]) => ({ pos, letter })),
+        shield: w.shield,
+        forbiddenPass: w.forbiddenPass,
         tier: { level: w.tierIndex + 1, name: this.config.tiers[w.tierIndex]?.name ?? '' },
         // Tuzağın ayrıldığı konum (harfleri değil). Tahmincilere "bu harfe dikkat" uyarısı için.
         trapPos: this.config.showTrapPosition ? w.puzzle.pos : null,
@@ -1278,6 +1351,7 @@ export class Room {
       minPlayers: this.config.minPlayers,
       maxPlayers: this.config.maxPlayers,
       reactions: this.config.excitement?.reactions ?? [],
+      mode: this.mode,
       players: this.orderedPlayers().map((p) => ({ id: p.id, name: p.name, connected: p.connected, ready: p.ready })),
       run: run
         ? {
@@ -1291,6 +1365,8 @@ export class Room {
             lifeEverySolved: this.config.lifeEverySolved,
             streak: run.streak,
             bestStreak: run.bestStreak,
+            powerHand: run.powerHand,
+            powerHandMax: this.config.cards?.powerHandMax ?? 0,
           }
         : null,
       record: team ? { bestScore: team.bestScore, bestStars: team.bestStars, runs: team.runs } : null,

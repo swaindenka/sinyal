@@ -26,6 +26,18 @@ const CHAOS = {
   mole: { name: 'Köstebek', icon: 'ghost', desc: () => 'Tahmincilerden biri gizlice köstebek. Kelime bitince oylama var.' },
 };
 
+/** Güç kartları: kim oynar, ne yapar. Sunucudaki server/cards.js POWERS ile aynı kurallar. */
+const POWER_INFO = {
+  fener: { name: 'Fener', icon: 'sun', by: 'guesser', phases: ['SIGNAL', 'DISCUSSION'], desc: 'Gizli kelimenin bir harfini herkese açar (tuzak harfi hariç).' },
+  kalkan: { name: 'Kalkan', icon: 'shield', by: 'guesser', phases: ['SIGNAL', 'DISCUSSION'], desc: 'Sıradaki tuzak tahmini can götürmez.' },
+  saat: { name: 'Saat', icon: 'clock', by: 'any', phases: ['SIGNAL', 'DISCUSSION'], desc: 'Bu aşamaya +30 saniye.' },
+  satir: { name: 'Ek kart', icon: 'plus', by: 'any', phases: ['WORD_SETUP', 'SIGNAL', 'DISCUSSION'], desc: 'Bu kelimeye +1 satır.' },
+  anahtar: { name: 'Anahtar', icon: 'key', by: 'captain', phases: ['WORD_SETUP', 'SIGNAL', 'DISCUSSION'], desc: 'Kaptanın sıradaki sinyali yasak harf içerebilir.' },
+  sakin: { name: 'Sakinleş', icon: 'wind', by: 'any', phases: ['WORD_SETUP', 'SIGNAL', 'DISCUSSION'], desc: 'O anki kaos kartını iptal eder.' },
+};
+const BY_LABEL = { guesser: 'tahminci oynar', captain: 'kaptan oynar', any: 'herkes oynayabilir' };
+const POWER_REASON = { start: 'başlangıç kartı', streak: 'seri ödülü', lightning: 'yıldırım ödülü', golden: 'altın kelime ödülü' };
+
 const RESULT = {
   solved: { label: 'Çözüldü', cls: 'ok' },
   trap: { label: 'Tuzak', cls: 'danger' },
@@ -60,6 +72,13 @@ const ERRORS = {
   SERVER_ERROR: () => 'Sunucu hatası',
   INVALID_REACTION: () => 'Geçersiz tepki',
   CAPTAIN_SILENT: () => 'Kaptan kelime sürerken tepki veremez',
+  NOT_IN_HAND: () => 'Bu kart elinde yok (boş kart kullanabilirsin)',
+  NO_BLANK_CARDS: () => 'Boş kartın kalmadı',
+  NO_REDRAWS: () => 'Eli bu kelimede zaten yeniledin',
+  POWER_NOT_FOUND: () => 'Bu güç kartı artık yok',
+  POWER_NOT_YOURS: () => 'Bu güç kartını sen oynayamazsın',
+  POWER_NO_EFFECT: () => 'Bu kart şu an işe yaramaz',
+  INVALID_MODE: () => 'Geçersiz oyun modu',
 };
 
 // ───────────────────────── yardımcılar ─────────────────────────
@@ -144,6 +163,9 @@ const S = {
   seenSeq: null,
   muted: local.get('sinyal.muted', false),
   hideSecret: false,
+  hand: null, // kaptanın sinyal eli (kart modu)
+  selectedCard: null,
+  blankMode: false, // boş kart / anahtar ile serbest yazma
   editOrder: false,
   lastTick: null,
   composer: false,
@@ -286,14 +308,14 @@ function floatReaction(playerId, emoji) {
 
 function onWordEnd(ev) {
   const extras = [];
-  if (ev.lightning) extras.push('Yıldırım +1 kumbara');
-  if (ev.streakBonus) extras.push(`${ev.streak}'li seri +1 kumbara`);
-  else if (ev.streak >= 2) extras.push(`${ev.streak}'li seri`);
+  if (ev.lightning) extras.push('Yıldırım');
+  if (ev.streak >= 2) extras.push(`${ev.streak}'li seri`);
+  for (const k of ev.powers ?? []) extras.push(`Güç kartı: ${POWER_INFO[k]?.name ?? k}`);
   if (ev.goldenLife) extras.push('Altın: +1 can');
   else if (ev.golden) extras.push('Altın: +2 kumbara');
   if (ev.result === 'solved') {
     SOUND.solved();
-    if (ev.lightning || ev.streakBonus || ev.golden) setTimeout(SOUND.bonus, 450);
+    if (ev.lightning || ev.streakReward || ev.golden) setTimeout(SOUND.bonus, 450);
     confetti();
     splash(ev.lightning ? 'YILDIRIM!' : 'BULUNDU!', extras.join(' · '), 'good');
   } else if (ev.result === 'trap') {
@@ -433,6 +455,11 @@ function onMessage(msg) {
       S.captainInfo = msg;
       render();
       break;
+    case 'hand':
+      S.hand = msg;
+      if (S.selectedCard && !msg.cards.some((c) => c.word === S.selectedCard)) S.selectedCard = null;
+      render();
+      break;
     case 'mole_info':
       S.moleInfo = msg;
       render();
@@ -486,6 +513,8 @@ function onState(prev, st) {
   const idx = st.run?.wordIndex;
   if (S.captainInfo && S.captainInfo.wordIndex !== idx) S.captainInfo = null;
   if (S.moleInfo && S.moleInfo.wordIndex !== idx) S.moleInfo = null;
+  if (S.moleInfo && st.word && !st.word.hasMole) S.moleInfo = null; // "Sakinleş" köstebeği iptal etti
+  if (S.hand && (S.hand.wordIndex !== idx || !st.word || st.word.captainId !== S.me?.playerId)) S.hand = null;
   if (!st.run) {
     S.captainInfo = null;
     S.moleInfo = null;
@@ -495,6 +524,8 @@ function onState(prev, st) {
   const phaseKey = `${idx}:${st.phase}`;
   if (phaseKey !== S.phaseKey) {
     S.phaseKey = phaseKey;
+    S.blankMode = false;
+    S.selectedCard = null;
     S.composer = Boolean(st.word && st.phase === 'SIGNAL' && st.word.captainId === S.me?.playerId);
   }
 
@@ -570,6 +601,24 @@ function handleEvent(ev, st) {
       break;
     case 'react':
       floatReaction(ev.playerId, ev.emoji);
+      break;
+    case 'power': {
+      const info = POWER_INFO[ev.kind];
+      const detail =
+        ev.kind === 'fener' ? `${ev.pos + 1}. harf açıldı` : ev.kind === 'saat' ? `+${ev.seconds} saniye` : ev.kind === 'sakin' ? 'kaos kartı iptal' : info.desc;
+      SOUND.bonus();
+      splash(info.name.toLocaleUpperCase('tr-TR'), `${mine ? 'Sen' : playerName(ev.playerId)} oynadı · ${detail}`, 'power');
+      break;
+    }
+    case 'power_gain':
+      if (ev.reason === 'start') toast(`Başlangıç güç kartı: ${POWER_INFO[ev.kind].name}`, 'good');
+      break;
+    case 'power_full':
+      toast('Güç eli dolu, yeni kart yandı');
+      break;
+    case 'shield':
+      SOUND.bonus();
+      splash('KALKAN!', 'Tuzak engellendi, can gitmedi', 'good');
       break;
     case 'mole_result':
       toast(ev.caught ? 'Köstebek yakalandı! +1 can' : 'Köstebek kaçtı', ev.caught ? 'good' : 'err');
@@ -722,7 +771,7 @@ const RULES = `
   <summary>${icon('help')} Nasıl oynanır?</summary>
   <ul>
     <li>2–8 kişilik <b>tek takım</b> olarak, Discord gibi sesli bir kanalda oynayın. İki kişide biri kaptan, diğeri tahminci olur.</li>
-    <li>Her kelimede biri <b>kaptan</b> olur: gizli kelimeyi görür ama <b>konuşamaz</b>, sadece <b>sinyal kelimesi</b> gönderir.</li>
+    <li>Her kelimede biri <b>kaptan</b> olur: gizli kelimeyi görür ama <b>konuşamaz</b>. Kart modunda eline 8 <b>sinyal kartı</b> dağıtılır ve bunlardan birini oynar; kelime başına bir kez eli yenileyebilir ve bir <b>boş kartla</b> istediği kelimeyi yazabilir.</li>
     <li>Sinyalin <b>anlamı</b> gizli kelimeyi çağrıştırır; <b>harfleri</b> de ipucu verir: harfin altındaki çizgi mavi ise harf tam yerinde, turuncu ise kelimede var ama başka yerde, gri ise kelimede yok.</li>
     <li><b>Tuzaklar</b> gizli kelimeden tek harf farklı kelimelerdir; tuzağı tahmin etmek can götürür. Kaptan, farkı veren <b>yasak harfleri</b> kullanamaz — bu ayrımı ancak anlamla verebilir.</li>
     <li>Tahminciler tartışır, tahmin önerir ve onaylar. Çoğunluk onaylayınca tahmin gönderilir (tek tahminci varsa hemen). Bir tartışmada en fazla 2 tahmin.</li>
@@ -730,7 +779,8 @@ const RULES = `
     <li>Çözülen kelimede artan satırlar <b>kumbaraya</b> gider; gerekince oybirliğiyle kumbaradan satır çekin.</li>
     <li>En fazla 1 sinyalle çözülen kelime yıldız kazandırır. Her 5 çözümde +1 can. Canlar bitene kadar devam!</li>
     <li>4. kelimeden itibaren her 3 kelimede bir <b>kaos kartı</b>: kategori kilidi, kör renk, hızlı tur, köstebek.</li>
-    <li><b>Bonuslar:</b> üst üste her 3 çözüm (seri) ve sinyalden sonraki 20 saniyede çözüm (yıldırım) kumbaraya +1 satır kazandırır. Ara sıra gelen <b>altın kelime</b> bir satır eksiktir ama çözülürse +1 can verir.</li>
+    <li><b>Güç kartları:</b> üst üste her 3 çözüm (seri), sinyalden sonraki 20 saniyede çözüm (yıldırım) ve altın kelime takıma güç kartı kazandırır: Fener (bir harf açar), Kalkan (tuzaktan korur), Saat (+30 sn), Ek kart (+1 satır), Anahtar (kaptan yasak harf kullanabilir), Sakinleş (kaos kartını iptal eder). Elde en fazla 5 kart durur.</li>
+    <li>Ara sıra gelen <b>altın kelime</b> bir satır eksiktir ama çözülürse +1 can verir.</li>
     <li>Tahminciler masadan tepki gönderebilir; kaptan kelime sürerken tepki de veremez.</li>
   </ul>
 </details>`;
@@ -742,7 +792,7 @@ const LAYOUT = {
     <main class="home">
       <div class="hero">
         ${logo()}
-        <p>2–8 kişilik takım kelime oyunu. Kaptan gizli kelimeyi bilir ama konuşamaz; sadece sinyal kartı gönderir.</p>
+        <p>2–8 kişilik takım kart oyunu. Kaptan gizli kelimeyi bilir ama konuşamaz; elindeki sinyal kartlarıyla anlatır.</p>
       </div>
       <section class="card stack">
         <label class="field"><span class="label">Adın</span><input class="input" type="text" id="name" maxlength="16" autocomplete="nickname" placeholder="ör. Deniz" /></label>
@@ -784,6 +834,10 @@ const LAYOUT = {
         <div class="muted small">Linki arkadaşlarına gönder. Sesli konuşma için Discord gibi bir kanal kullanın.</div>
       </section>
       <section class="card stack">
+        <div class="label">Oyun modu</div>
+        <div id="l-mode" data-memo></div>
+      </section>
+      <section class="card stack">
         <div class="label">Takım adı</div>
         <div id="l-team"></div>
         <div id="l-record" class="muted small"></div>
@@ -815,6 +869,7 @@ const LAYOUT = {
       </div>
       <aside class="col-side">
         <div id="g-info" data-memo></div>
+        <div id="g-powers" data-memo></div>
         <div id="g-secret" data-memo></div>
         <section class="panel" id="g-panel" data-memo></section>
         <div class="toolbar" id="g-tools" data-memo></div>
@@ -880,6 +935,17 @@ function updateLobby() {
       ? 'Bu takımın henüz rekoru yok.'
       : '';
 
+  const modes = [
+    ['cards', 'Kart modu', 'Kaptan elindeki sinyal kartlarından oynar. Hızlı, klavye yok.'],
+    ['free', 'Serbest yazma', 'Kaptan sinyali kendisi yazar. Daha özgür, daha zor.'],
+  ];
+  document.getElementById('l-mode').innerHTML = `<div class="seg">${modes
+    .map(
+      ([m, name, desc]) => `<button class="seg-opt ${st.mode === m ? 'on' : ''}" data-action="mode" data-mode="${m}" ${isHost() ? '' : 'disabled'} aria-pressed="${st.mode === m}">
+        <b>${icon(m === 'cards' ? 'layers' : 'pen', { size: 16 })} ${name}</b><span>${desc}</span></button>`,
+    )
+    .join('')}</div>${isHost() ? '' : '<div class="muted small">Modu oda sahibi seçer.</div>'}`;
+
   const players = st.players;
   document.getElementById('l-count').textContent = `(${players.length}/${st.maxPlayers})`;
   document.getElementById('l-order-tools').innerHTML = isHost()
@@ -943,6 +1009,7 @@ function updateGame() {
   renderSecret();
   renderBoard();
   renderPanel();
+  renderPowers();
   renderCompose();
   renderTyped();
   renderKeyboard();
@@ -982,12 +1049,31 @@ function turnInfo() {
   const kicker = `${st.run.wordIndex}. kelime${w.golden ? ' · ALTIN' : ''} · Kaptan: ${capName}`;
   switch (st.phase) {
     case 'WORD_SETUP':
-      if (cap) return { kicker, icon: 'micOff', title: 'Kaptan sensin', sub: 'Gizli kelimeyi ve tuzakları incele. Bu kelime boyunca konuşma.', mine: true };
+      if (cap)
+        return {
+          kicker,
+          icon: 'micOff',
+          title: 'Kaptan sensin',
+          sub: cardMode() ? 'Gizli kelimeyi ve elindeki kartları incele. Bu kelime boyunca konuşma.' : 'Gizli kelimeyi ve tuzakları incele. Bu kelime boyunca konuşma.',
+          mine: true,
+        };
       if (isMole()) return { kicker, icon: 'ghost', title: 'Köstebeksin', sub: 'Gizli kelimeyi biliyorsun. Takımı fark ettirmeden tuzağa çek.', mine: true };
       return { kicker, icon: 'signal', title: 'Yeni kelime', sub: `${w.length} harf. ${capName} birazdan sinyal gönderecek; kaptan konuşamaz.` };
     case 'SIGNAL':
-      if (cap) return { kicker, icon: 'send', title: 'Sinyal gönder', sub: `${w.length} harfli, yasak harf içermeyen bir kelime yaz.`, mine: true };
-      return { kicker, icon: 'signal', title: `${capName} sinyal seçiyor`, sub: 'Bu sırada aklınızdaki adayları konuşabilirsiniz.' };
+      if (cap)
+        return {
+          kicker,
+          icon: 'send',
+          title: cardMode() ? 'Sinyal kartı oyna' : 'Sinyal gönder',
+          sub: cardMode() ? 'Elinden gizli kelimeyi en iyi anlatan kartı seç ve oyna.' : `${w.length} harfli, yasak harf içermeyen bir kelime yaz.`,
+          mine: true,
+        };
+      return {
+        kicker,
+        icon: 'signal',
+        title: `${capName} ${cardMode() ? 'kart seçiyor' : 'sinyal seçiyor'}`,
+        sub: 'Bu sırada aklınızdaki adayları konuşabilirsiniz.',
+      };
     case 'DISCUSSION': {
       const last = w.rowsRemaining <= 1;
       if (cap) return { kicker, icon: 'micOff', title: 'Takım tartışıyor', sub: 'Sessiz kal. Sıradaki sinyalini şimdiden yazabilirsin.' };
@@ -1125,12 +1211,20 @@ function renderWord() {
   }
   const k = knowledge(w);
   const blind = w.chaosCard === 'blind';
+  const revealed = new Map((w.revealed ?? []).map((r) => [r.pos, r.letter]));
   const slots = k.known
-    .map((c, i) => {
+    .map((known, i) => {
       const trap = w.trapPos === i;
-      return `<span class="slot ${c ? 'known' : ''} ${trap ? 'trap' : ''}" ${trap ? 'title="Tuzak bu harfte"' : ''}>${c ? esc(c) : '?'}${trap ? '<em>tuzak</em>' : ''}</span>`;
+      const lit = !known && revealed.has(i);
+      const c = known ?? revealed.get(i);
+      return `<span class="slot ${c ? 'known' : ''} ${lit ? 'lit' : ''} ${trap ? 'trap' : ''}" ${trap ? 'title="Tuzak bu harfte"' : lit ? 'title="Fener ile açıldı"' : ''}>${
+        c ? esc(c) : '?'
+      }${trap ? '<em>tuzak</em>' : ''}</span>`;
     })
     .join('');
+  const active = [];
+  if (w.shield) active.push(`<span class="tag primary">${icon('shield', { size: 12 })} Kalkan aktif</span>`);
+  if (w.forbiddenPass) active.push(`<span class="tag gold">${icon('key', { size: 12 })} Anahtar aktif</span>`);
   const letters = [];
   if (k.present.length) letters.push(`<span>Kelimede var: <b>${esc(k.present.join(' '))}</b></span>`);
   if (k.absent.length && !blind) letters.push(`<span>Yok: <b>${esc(k.absent.join(' '))}</b></span>`);
@@ -1150,6 +1244,7 @@ function renderWord() {
           : ''
       }
       ${letters.length ? `<div class="letters-line">${letters.join('')}</div>` : ''}
+      ${active.length ? `<div class="row" style="justify-content:center;flex-wrap:wrap">${active.join('')}</div>` : ''}
       <div class="legend"><span><i class="c-G"></i>tam yerinde</span><span><i class="c-Y"></i>kelimede var</span><span><i class="c-X"></i>yok</span></div>
     </div>`;
 }
@@ -1208,6 +1303,7 @@ function renderTable() {
       <div class="ava-wrap">${avatar(captain)}${capHost}</div>
       <div class="sname ${captain.id === S.me.playerId ? 'me' : ''}">${captain.id === S.me.playerId ? 'Sen' : esc(captain.name)}</div>
       <div class="role">${icon('micOff', { size: 12 })} Kaptan</div>
+      ${w.handCount != null ? `<div class="hand-count" title="Kaptanın elindeki sinyal kartı">${icon('layers', { size: 11 })} ${w.handCount} kart</div>` : ''}
     </div>
     ${others.slice(half).map(seat).join('')}
   </div>${reactionBar()}</div>`;
@@ -1303,7 +1399,14 @@ function renderBoard() {
         <div class="wc-empty">${icon('clock', { size: 18 })} süre doldu</div>
       </article>`;
     }
-    const stamp = row.result === 'trap' ? '<span class="stamp">TUZAK</span>' : row.result === 'correct' ? '<span class="stamp ok">BULUNDU</span>' : '';
+    const stamp =
+      row.result === 'trap'
+        ? '<span class="stamp">TUZAK</span>'
+        : row.result === 'correct'
+          ? '<span class="stamp ok">BULUNDU</span>'
+          : row.result === 'shielded'
+            ? '<span class="stamp shield">KALKAN</span>'
+            : '';
     return `<article class="wcard guess ${row.result ? `res-${row.result}` : ''} ${deal}">
       <header><span>tahmin</span><span>${esc(playerName(row.byPlayerId))}</span></header>
       <div class="wc-word" style="--len:${w.length}">${lettersHtml(row.word, row.colors)}</div>
@@ -1449,11 +1552,25 @@ function nextCaptainLine() {
     : `<div class="small next-cap" style="color:var(--text-2)">Sıradaki kaptan: <b>${esc(playerName(next))}</b></div>`;
 }
 
-function canType() {
+function cardMode() {
+  return S.state?.mode === 'cards';
+}
+
+/** Alt alan (yazma / el) bu oyuncu için şu an açık mı? */
+function dockActive() {
   const st = S.state;
   if (!st?.word || !WORD_PHASES.has(st.phase)) return false;
   if (isCaptain()) return true;
   return st.phase === 'SIGNAL' || st.phase === 'DISCUSSION';
+}
+
+/** Kaptan kart modunda elinden oynar; klavye yalnızca boş kart / anahtar ile açılır. */
+function captainUsesHand() {
+  return isCaptain() && cardMode() && !S.blankMode;
+}
+
+function canType() {
+  return dockActive() && !captainUsesHand();
 }
 
 function canSubmitNow() {
@@ -1466,11 +1583,15 @@ function canSubmitNow() {
 function renderCompose() {
   const el = document.getElementById('g-compose');
   const st = S.state;
-  if (!canType()) {
+  if (!dockActive()) {
     el.innerHTML = '';
     return;
   }
   const cap = isCaptain();
+  if (cap && cardMode()) {
+    el.innerHTML = handBarHtml();
+    return;
+  }
   if (S.composer) {
     el.innerHTML = `<div class="composer-head"><button class="text-btn" data-action="compose">${icon('down', { size: 16 })} Klavyeyi gizle</button></div>`;
     return;
@@ -1487,10 +1608,59 @@ function renderCompose() {
   el.innerHTML = `<div class="composer-bar">${btn}</div>`;
 }
 
+/** Kaptanın el çubuğu: eli aç/kapat, oyna, yenile, boş kart. */
+function handBarHtml() {
+  const st = S.state;
+  const h = S.hand;
+  const n = h?.cards.length ?? 0;
+  const pass = st.word.forbiddenPass;
+  if (S.blankMode) {
+    return `<div class="composer-bar hand-bar">
+      <span class="hand-note">${icon(pass ? 'key' : 'pen', { size: 16 })} ${pass ? 'Anahtar: istediğin kelimeyi yaz, yasak harf de olur' : 'Boş kart: istediğin kelimeyi yaz'}</span>
+      <button class="btn sm ghost" data-action="blank-off">${icon('layers', { size: 16 })} Ele dön</button>
+    </div>`;
+  }
+  if (!S.composer) {
+    const primary = st.phase === 'SIGNAL';
+    return `<div class="composer-bar"><button class="btn ${primary ? 'primary' : 'ghost'}" data-action="compose">${icon('layers', { size: 16 })} Elini aç (${n} kart)</button></div>`;
+  }
+  const canPlay = st.phase === 'SIGNAL' && !st.paused && S.selectedCard;
+  return `<div class="composer-bar hand-bar">
+    <button class="btn primary" data-action="play-card" ${canPlay ? '' : 'disabled'}>${icon('send', { size: 16 })} ${
+      S.selectedCard ? `${esc(S.selectedCard)} oyna` : st.phase === 'SIGNAL' ? 'Kart seç' : 'Sinyal sırası bekleniyor'
+    }</button>
+    <button class="btn sm ghost" data-action="redraw" ${h?.redraws > 0 ? '' : 'disabled'} title="Elindeki kartları atıp yenilerini çek">${icon('refresh', { size: 16 })} Yenile (${h?.redraws ?? 0})</button>
+    <button class="btn sm ghost" data-action="blank-on" ${h?.blanks > 0 || pass ? '' : 'disabled'} title="Elinde olmayan bir kelimeyi yaz">${icon(pass ? 'key' : 'pen', { size: 16 })} ${pass ? 'Anahtar' : `Boş kart (${h?.blanks ?? 0})`}</button>
+    <button class="icon-btn" data-action="compose" title="Eli gizle" aria-label="Eli gizle">${icon('down', { size: 16 })}</button>
+  </div>`;
+}
+
+/** Kaptanın elindeki sinyal kartları; renk çizgileri oynayınca herkesin göreceği gibidir. */
+function handHtml() {
+  const st = S.state;
+  const h = S.hand;
+  if (!h) return '<div class="msg">El dağıtılıyor…</div>';
+  if (!h.cards.length) return '<div class="msg">Elinde uygun kart kalmadı; boş kart kullan.</div>';
+  const len = st.word.length;
+  const cards = h.cards
+    .map(
+      (c) => `<button class="hcard ${S.selectedCard === c.word ? 'selected' : ''}" data-action="pick" data-word="${esc(c.word)}" aria-pressed="${S.selectedCard === c.word}">
+        <span class="wc-word" style="--len:${len}">${lettersHtml(c.word, c.colors)}</span>
+      </button>`,
+    )
+    .join('');
+  return `<div class="hand" role="group" aria-label="Sinyal elin">${cards}</div>
+    <div class="msg">${st.phase === 'SIGNAL' ? 'Bir kart seç ve oyna (seçili karta tekrar dokunmak da oynar).' : 'Elini şimdiden inceleyebilirsin; sinyal sırası gelince oynarsın.'} Renkler, oynayınca herkesin göreceği gibidir.</div>`;
+}
+
 function renderTyped() {
   const el = document.getElementById('g-typed');
   if (!el) return;
   const st = S.state;
+  if (dockActive() && captainUsesHand() && S.composer) {
+    el.innerHTML = handHtml();
+    return;
+  }
   if (!canType() || !S.composer) {
     el.innerHTML = '';
     return;
@@ -1543,7 +1713,7 @@ function renderKeyboard() {
     return;
   }
   const colors = keyColors();
-  const forbidden = new Set(isCaptain() ? (S.captainInfo?.forbidden ?? []) : []);
+  const forbidden = new Set(isCaptain() && !S.state.word.forbiddenPass ? (S.captainInfo?.forbidden ?? []) : []);
   const cap = isCaptain();
   el.innerHTML = KEY_ROWS.map(
     (row) =>
@@ -1559,6 +1729,40 @@ function renderKeyboard() {
         })
         .join('')}</div>`,
   ).join('');
+}
+
+/** Takımın güç kartı eli. */
+function renderPowers() {
+  const st = S.state;
+  const el = document.getElementById('g-powers');
+  const run = st.run;
+  if (!run?.powerHandMax) {
+    el.innerHTML = '';
+    return;
+  }
+  const cap = isCaptain();
+  const cards = run.powerHand
+    .map((c) => {
+      const info = POWER_INFO[c.type];
+      if (!info) return '';
+      const roleOk = info.by === 'any' || (info.by === 'captain') === cap;
+      const phaseOk = info.phases.includes(st.phase);
+      const playable = roleOk && phaseOk && !st.paused;
+      return `<div class="pcard p-${c.type}">
+        <div class="pc-top">${icon(info.icon, { size: 18 })}<b>${info.name}</b></div>
+        <div class="pc-desc">${esc(info.desc)}</div>
+        <button class="btn sm ${playable ? 'primary' : 'ghost'}" data-action="power" data-id="${c.id}" ${playable ? '' : 'disabled'}>${
+          playable ? 'Oyna' : roleOk ? 'Şimdi olmaz' : BY_LABEL[info.by]
+        }</button>
+      </div>`;
+    })
+    .join('');
+  const empty = Array.from({ length: Math.max(0, run.powerHandMax - run.powerHand.length) }, () => '<div class="pcard slot-empty"></div>').join('');
+  el.innerHTML = `<section class="powers">
+    <div class="spread"><div class="label">${icon('layers', { size: 14 })} Güç kartları</div><span class="muted small">${run.powerHand.length}/${run.powerHandMax}</span></div>
+    <div class="pcards">${cards}${empty}</div>
+    ${run.powerHand.length ? '' : '<div class="muted small">Seri, yıldırım ve altın kelimeyle güç kartı kazanırsınız.</div>'}
+  </section>`;
 }
 
 function renderTools() {
@@ -1733,7 +1937,7 @@ function pressKey(k) {
     return;
   }
   if (!ALPHABET.has(k)) return;
-  if (isCaptain() && S.captainInfo?.forbidden.includes(k)) {
+  if (isCaptain() && !S.state.word.forbiddenPass && S.captainInfo?.forbidden.includes(k)) {
     toast(`${k} yasak harf`, 'err');
     return;
   }
@@ -1754,7 +1958,7 @@ function submitTyped() {
       return;
     }
     S.pending = S.typed;
-    send({ type: 'send_signal', word: S.typed });
+    send({ type: 'send_signal', word: S.typed, blank: cardMode() });
   } else {
     if (st.phase !== 'DISCUSSION') {
       toast('Tahminler tartışma aşamasında önerilir', 'err');
@@ -1763,6 +1967,13 @@ function submitTyped() {
     S.pending = S.typed;
     send({ type: 'propose_guess', word: S.typed });
   }
+}
+
+function playSelected() {
+  if (!S.selectedCard || S.state?.phase !== 'SIGNAL') return;
+  S.pending = S.selectedCard;
+  send({ type: 'send_signal', word: S.selectedCard });
+  S.selectedCard = null;
 }
 
 function moveOrder(id, dir) {
@@ -1847,6 +2058,38 @@ document.addEventListener('click', (e) => {
     case 'react':
       send({ type: 'react', emoji: btn.dataset.emoji });
       break;
+    case 'pick': {
+      const word = btn.dataset.word;
+      if (S.selectedCard === word && S.state.phase === 'SIGNAL') playSelected();
+      else {
+        S.selectedCard = word;
+        render();
+      }
+      break;
+    }
+    case 'play-card':
+      playSelected();
+      break;
+    case 'redraw':
+      S.selectedCard = null;
+      send({ type: 'redraw_hand' });
+      break;
+    case 'blank-on':
+      S.blankMode = true;
+      S.composer = true;
+      S.selectedCard = null;
+      render();
+      break;
+    case 'blank-off':
+      S.blankMode = false;
+      render();
+      break;
+    case 'power':
+      send({ type: 'play_power', cardId: id });
+      break;
+    case 'mode':
+      send({ type: 'set_mode', mode: btn.dataset.mode });
+      break;
     case 'approve':
       send({ type: 'approve', proposalId: id });
       break;
@@ -1888,12 +2131,14 @@ document.addEventListener('keydown', (e) => {
   } else if (e.key === 'Enter') {
     if (e.target instanceof HTMLButtonElement && e.target.dataset.action !== 'key') return; // odaklı düğmeye bırak
     e.preventDefault();
-    pressKey('ENTER');
+    if (dockActive() && captainUsesHand()) playSelected();
+    else pressKey('ENTER');
   } else if (e.key.length === 1) {
     const k = norm(e.key);
     if (ALPHABET.has(k)) {
       e.preventDefault();
-      if (canType() && !S.composer) {
+      if (!canType()) return;
+      if (!S.composer) {
         S.composer = true; // fiziksel klavyeyle yazmaya başlayınca alan açılır
         render();
       }
