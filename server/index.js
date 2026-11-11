@@ -1,8 +1,8 @@
 // SİNYAL sunucusu: statik dosyalar + WebSocket oyun odaları.
 import http from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { randomInt } from 'node:crypto';
+import { randomInt, createHash } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { loadConfig, ROOT } from './config.js';
 import { loadGameData } from './data.js';
@@ -14,7 +14,8 @@ const PUBLIC_DIR = path.join(ROOT, 'public');
 const CODE_CHARS = 'ABCDEFGHJKLMNPRSTUVYZ';
 const MAX_MESSAGE_BYTES = 2048;
 const MSG_WINDOW_MS = 5000;
-const MSG_WINDOW_MAX = 60;
+const MSG_WINDOW_MAX = 100;
+const MAX_ROOMS = 2000;
 
 const config = loadConfig();
 const { dictionary, puzzles } = loadGameData(config);
@@ -48,6 +49,16 @@ function createRoom() {
     puzzles,
     store,
     send: (playerId, msg) => sendTo(code, playerId, msg),
+    disconnectPlayer: (playerId) => {
+      // Oda sahibi oyuncuyu çıkardı: soketi oyundan ayır.
+      const key = `${code}:${playerId}`;
+      const ws = sockets.get(key);
+      sockets.delete(key);
+      if (ws) {
+        ws.ctx = null;
+        setTimeout(() => ws.close(4001, 'kicked'), 50);
+      }
+    },
     onEmpty: () => rooms.delete(code),
   });
   rooms.set(code, room);
@@ -73,34 +84,80 @@ const MIME = {
   '.webmanifest': 'application/manifest+json',
 };
 
-const server = http.createServer(async (req, res) => {
+/**
+ * Statik dosyalar bellekte, içerik özetiyle (ETag) tutulur; yeni sürüm yayınlanınca tarayıcı hemen
+ * yeniler. Dosya diskte değişirse (geliştirme sırasında) önbellek tazelenir.
+ */
+const fileCache = new Map();
+async function loadStatic(file) {
+  const { mtimeMs } = await stat(file);
+  const cached = fileCache.get(file);
+  if (cached && cached.mtimeMs === mtimeMs) return cached;
+  const body = await readFile(file);
+  const entry = { body, mtimeMs, etag: `"${createHash('sha1').update(body).digest('base64url')}"` };
+  fileCache.set(file, entry);
+  return entry;
+}
+
+function sendText(res, status, text) {
+  res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' });
+  res.end(text);
+}
+
+async function handleHttp(req, res) {
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname === '/health') {
     let players = 0;
     for (const r of rooms.values()) players += r.connectedPlayers().length;
-    res.writeHead(200, { 'content-type': 'application/json' });
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(JSON.stringify({ ok: true, rooms: rooms.size, players }));
     return;
   }
-  let rel = decodeURIComponent(url.pathname);
-  if (rel === '/' || rel.startsWith('/oda/')) rel = '/index.html';
-  const file = path.join(PUBLIC_DIR, path.normalize(rel));
-  if (!file.startsWith(PUBLIC_DIR)) {
-    res.writeHead(403).end();
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    sendText(res, 405, 'İzin verilmiyor');
     return;
   }
+  let rel;
   try {
-    const body = await readFile(file);
-    const ext = path.extname(file);
-    res.writeHead(200, {
-      'content-type': MIME[ext] || 'application/octet-stream',
-      'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=300',
-      'x-content-type-options': 'nosniff',
-    });
-    res.end(body);
+    rel = decodeURIComponent(url.pathname);
   } catch {
-    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('Bulunamadı');
+    sendText(res, 400, 'Geçersiz adres');
+    return;
   }
+  if (rel === '/' || rel.startsWith('/oda/')) rel = '/index.html';
+  const file = path.join(PUBLIC_DIR, path.normalize(rel));
+  if (!file.startsWith(PUBLIC_DIR + path.sep)) {
+    sendText(res, 403, 'Yasak');
+    return;
+  }
+  let entry;
+  try {
+    entry = await loadStatic(file);
+  } catch {
+    sendText(res, 404, 'Bulunamadı');
+    return;
+  }
+  const headers = {
+    'content-type': MIME[path.extname(file)] || 'application/octet-stream',
+    'cache-control': 'no-cache',
+    etag: entry.etag,
+    'x-content-type-options': 'nosniff',
+  };
+  if (req.headers['if-none-match'] === entry.etag) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  res.writeHead(200, headers);
+  res.end(req.method === 'HEAD' ? undefined : entry.body);
+}
+
+const server = http.createServer((req, res) => {
+  handleHttp(req, res).catch((err) => {
+    console.error('[sinyal] HTTP hatası:', err);
+    if (!res.headersSent) sendText(res, 500, 'Sunucu hatası');
+    else res.end();
+  });
 });
 
 // ───────────────────────── WebSocket ─────────────────────────
@@ -118,6 +175,10 @@ function handleJoin(ws, msg) {
   }
   let room;
   const creating = msg.type === 'create';
+  if (creating && rooms.size >= MAX_ROOMS) {
+    sendRaw(ws, { type: 'error', code: 'SERVER_FULL', about: 'join' });
+    return;
+  }
   if (creating) room = createRoom();
   else {
     room = rooms.get(String(msg.code || '').trim().toUpperCase());
@@ -230,7 +291,7 @@ const sweeper = setInterval(() => {
 }, 60_000);
 
 server.listen(PORT, () => {
-  console.log(`[sinyal] http://localhost:${PORT} adresinde çalışıyor`);
+  console.log(`[sinyal] http://localhost:${server.address().port} adresinde çalışıyor`);
 });
 
 async function shutdown() {

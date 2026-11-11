@@ -564,3 +564,65 @@ test('host kaptan sırasını düzenleyebilir', () => {
   h.room.handle(h.ps[1].id, { type: 'reorder', order: reversed });
   assert.equal(h.lastError(h.ps[1].id), 'NOT_HOST');
 });
+
+test('kaos: kategori kilidinde kaptan kabul edilen kelimelerin listesini alır', () => {
+  const config = testConfig({ chaos: { startWord: 1, cards: ['category'] } });
+  const h = makeRoom({ config });
+  start(h);
+  const info = h.sent.filter((m) => m.msg.type === 'captain_info').pop().msg;
+  assert.ok(Array.isArray(info.categoryWords));
+  assert.ok(info.categoryWords.length >= config.chaos.categoryMinSignals);
+  h.toSignal();
+  for (const w of info.categoryWords) assert.equal(h.room.validateSignal(w), null, w);
+});
+
+test('oda sahibi oyuncu çıkarabilir; çıkarılan aynı kimlikle geri dönemez', () => {
+  const h = makeRoom({ players: 4 });
+  const [host, target, other] = h.ps;
+  h.room.handle(other.id, { type: 'kick', playerId: target.id });
+  assert.equal(h.lastError(other.id), 'NOT_HOST');
+  h.room.handle(host.id, { type: 'kick', playerId: host.id });
+  assert.equal(h.lastError(host.id), 'INVALID_KICK');
+  h.room.handle(host.id, { type: 'kick', playerId: target.id });
+  assert.equal(target.left, true);
+  assert.ok(!h.room.order.includes(target.id));
+  assert.ok(h.sent.some((m) => m.to === target.id && m.msg.type === 'kicked'));
+  assert.throws(() => h.room.join({ token: target.token }), { code: 'KICKED' });
+});
+
+test('çıkarılan kaptansa kelime iptal edilir ve sıradaki kaptana geçilir', () => {
+  const h = makeRoom({ players: 4 });
+  const [host, second, ...rest] = h.ps;
+  h.room.handle(host.id, { type: 'reorder', order: [second.id, host.id, ...rest.map((p) => p.id)] });
+  start(h);
+  const cap = h.captain();
+  assert.equal(cap.id, second.id);
+  h.room.handle(host.id, { type: 'kick', playerId: cap.id });
+  assert.equal(h.room.run.words[0].result, 'cancelled');
+  assert.notEqual(h.captain().id, cap.id);
+  assert.equal(h.room.run.lives, 3);
+});
+
+test('köstebek oylaması duraklamadayken sonuçlanmaz', () => {
+  const config = testConfig({ chaos: { startWord: 1, cards: ['mole'] } });
+  const h = makeRoom({ config, players: 5 });
+  start(h);
+  const moleId = h.room.word.moleId;
+  h.toSignal();
+  h.signal('ELMAS');
+  h.guess(h.trap());
+  assert.equal(h.room.phase, Phase.MOLE_VOTE);
+  // Oy vermeden kopacak oyuncu köstebek olmasın (köstebek koparsa oylama zaten atlanır).
+  const voters = h.room.connectedPlayers().sort((a, b) => (a.id === moleId) - (b.id === moleId)).reverse();
+  for (const p of voters.slice(0, -1)) {
+    const target = p.id === moleId ? h.room.voteTargets(p.id)[0].id : moleId;
+    h.room.handle(p.id, { type: 'vote_mole', playerId: target });
+  }
+  // Son oy vermeyen oyuncunun bağlantısı koparsa ve oyun duraklarsa sonuç beklemeli.
+  h.room.handle(h.room.hostId, { type: 'pause' });
+  const last = voters[voters.length - 1];
+  h.room.disconnect(last.id);
+  assert.equal(h.room.phase, Phase.MOLE_VOTE);
+  h.room.handle(h.room.hostId, { type: 'pause' });
+  assert.equal(h.room.phase, Phase.REVEAL);
+});

@@ -45,6 +45,9 @@ const ERRORS = {
   PROPOSAL_NOT_FOUND: () => 'Bu öneri artık yok',
   INVALID_VOTE: () => 'Geçersiz oy',
   INVALID_ORDER: () => 'Sıra güncellenemedi',
+  INVALID_KICK: () => 'Bu oyuncu çıkarılamaz',
+  KICKED: () => 'Bu odadan çıkarıldın',
+  SERVER_FULL: () => 'Sunucu şu an dolu, biraz sonra dene',
   SERVER_ERROR: () => 'Sunucu hatası',
 };
 
@@ -110,6 +113,11 @@ const S = {
   connected: false,
   reconnectDelay: 800,
   reconnectTimer: null,
+  openQueue: [],
+  lastSeen: 0,
+  names: {},
+  statsOpen: false,
+  myVote: null,
   replaced: false,
   me: session.get(),
   state: null,
@@ -143,7 +151,7 @@ function isCaptain() {
   return Boolean(S.state?.word && S.me && S.state.word.captainId === S.me.playerId);
 }
 function playerName(id) {
-  return S.state?.players.find((p) => p.id === id)?.name ?? '—';
+  return S.state?.players.find((p) => p.id === id)?.name ?? S.names[id] ?? '—';
 }
 function serverNow() {
   return Date.now() + S.offset;
@@ -205,15 +213,32 @@ function wsUrl() {
 
 function connect(onOpen) {
   clearTimeout(S.reconnectTimer);
+  if (S.ws && S.ws.readyState === WebSocket.CONNECTING) {
+    // Zaten bağlanıyor: açılınca bu isteği de çalıştır.
+    if (onOpen) S.openQueue.push(onOpen);
+    return;
+  }
   const ws = new WebSocket(wsUrl());
   S.ws = ws;
+  S.openQueue = onOpen ? [onOpen] : [];
+  let opened = false;
   ws.onopen = () => {
+    if (S.ws !== ws) {
+      ws.close();
+      return;
+    }
+    opened = true;
     S.connected = true;
+    S.lastSeen = Date.now();
     S.reconnectDelay = 800;
     renderConn();
-    onOpen?.();
+    const queue = S.openQueue;
+    S.openQueue = [];
+    for (const fn of queue) fn();
   };
   ws.onmessage = (e) => {
+    if (S.ws !== ws) return; // eski bağlantıdan gelen mesaj
+    S.lastSeen = Date.now();
     try {
       onMessage(JSON.parse(e.data));
     } catch (err) {
@@ -228,8 +253,25 @@ function connect(onOpen) {
     if (S.me && !S.replaced) {
       S.reconnectTimer = setTimeout(() => connect(rejoin), S.reconnectDelay);
       S.reconnectDelay = Math.min(5000, S.reconnectDelay * 1.7);
-    }
+    } else if (!opened) toast('Sunucuya bağlanılamadı, tekrar dene', 'err');
   };
+}
+
+/** Uyuyan/kopuk bağlantıyı hızlı fark etmek için düzenli ping; cevap gelmezse yeniden bağlan. */
+function heartbeat() {
+  if (!S.ws || S.ws.readyState !== WebSocket.OPEN) return;
+  if (Date.now() - S.lastSeen > 45_000) {
+    S.ws.close();
+    return;
+  }
+  S.ws.send('{"type":"ping"}');
+}
+
+function reconnectNow() {
+  if (!S.me || S.replaced) return;
+  if (S.ws && S.ws.readyState <= WebSocket.OPEN) return;
+  S.reconnectDelay = 800;
+  connect(rejoin);
 }
 
 function send(msg) {
@@ -248,6 +290,18 @@ function rejoin() {
 function withSocket(fn) {
   if (S.ws?.readyState === WebSocket.OPEN) fn();
   else connect(fn);
+}
+
+function goHome(message) {
+  session.clear();
+  S.me = null;
+  S.state = null;
+  S.captainInfo = null;
+  S.moleInfo = null;
+  S.seenSeq = null;
+  history.replaceState(null, '', '/');
+  if (message) local.set('sinyal.flash', message);
+  location.reload();
 }
 
 function onMessage(msg) {
@@ -287,6 +341,9 @@ function onMessage(msg) {
       S.state = null;
       render();
       break;
+    case 'kicked':
+      goHome('Oda sahibi seni odadan çıkardı.');
+      break;
     default:
       break;
   }
@@ -306,6 +363,7 @@ function onError(msg) {
 }
 
 function onState(prev, st) {
+  for (const p of st.players) S.names[p.id] = p.name; // ayrılan oyuncuların adı da gösterilebilsin
   const key = st.run && st.word ? `${st.run.wordIndex}` : null;
   if (key !== S.wordKey) {
     S.wordKey = key;
@@ -313,6 +371,7 @@ function onState(prev, st) {
     S.preview = null;
     S.pending = null;
     S.renderedRows = 0;
+    S.myVote = null;
   }
   const idx = st.run?.wordIndex;
   if (S.captainInfo && S.captainInfo.wordIndex !== idx) S.captainInfo = null;
@@ -353,8 +412,10 @@ function handleEvent(ev, st) {
       break;
     case 'word_start':
       SOUND.start();
-      if (ev.captainId === S.me?.playerId) toast('Kaptan sensin! Konuşmak yok 🤐', 'good');
-      else toast(`${ev.wordIndex}. kelime · Kaptan: ${playerName(ev.captainId)}`);
+      if (ev.captainId === S.me?.playerId) {
+        toast('Kaptan sensin! Konuşmak yok 🤐', 'good');
+        navigator.vibrate?.([120, 60, 120]);
+      } else toast(`${ev.wordIndex}. kelime · Kaptan: ${playerName(ev.captainId)}`);
       if (ev.chaosCard) toast(`${CHAOS[ev.chaosCard].icon} Kaos kartı: ${CHAOS[ev.chaosCard].name}`);
       break;
     case 'signal':
@@ -399,6 +460,19 @@ function handleEvent(ev, st) {
     case 'join':
       if (!mine && st.phase !== 'LOBBY') toast(`${playerName(ev.playerId)} katıldı`);
       break;
+    case 'disconnect':
+      if (!mine && st.phase !== 'LOBBY') toast(`${ev.name} bağlantısı koptu`, 'err');
+      break;
+    case 'reconnect':
+      if (!mine && st.phase !== 'LOBBY') toast(`${ev.name} geri döndü`, 'good');
+      break;
+    case 'leave':
+      if (!mine && st.phase !== 'LOBBY' && !S.kickedIds?.has(ev.playerId)) toast(`${ev.name} oyundan ayrıldı`);
+      break;
+    case 'kick':
+      (S.kickedIds ??= new Set()).add(ev.playerId);
+      if (!mine) toast(`${ev.name} odadan çıkarıldı`);
+      break;
     case 'paused':
       toast('Oyun duraklatıldı ⏸');
       break;
@@ -421,15 +495,61 @@ function currentScreen() {
   return 'game';
 }
 
+/**
+ * data-memo işaretli bölümlerde innerHTML yalnızca içerik gerçekten değiştiğinde yazılır.
+ * Böylece her durum güncellemesinde düğmeler yeniden oluşmaz; tıklamalar ve açık/kapalı
+ * bölümler kaybolmaz.
+ */
+const INNER_HTML = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+function memoizeHTML(el) {
+  Object.defineProperty(el, 'innerHTML', {
+    get() {
+      return INNER_HTML.get.call(this);
+    },
+    set(html) {
+      if (this.memoHTML === html) return;
+      this.memoHTML = html;
+      INNER_HTML.set.call(this, html);
+    },
+  });
+}
+
 function render() {
   const screen = currentScreen();
   if (screen !== S.screen) {
     S.screen = screen;
-    app.innerHTML = `<div class="wrap">${LAYOUT[screen]()}</div>`;
+    app.innerHTML = `<div class="wrap screen-${screen}">${LAYOUT[screen]()}</div>`;
+    app.querySelectorAll('[data-memo]').forEach(memoizeHTML);
     MOUNT[screen]?.();
   }
   UPDATE[screen]?.();
   renderConn();
+  updateTitle();
+}
+
+function updateTitle() {
+  const st = S.state;
+  let title = 'SİNYAL';
+  if (S.screen === 'lobby') title = `Lobi · ${st.code} · SİNYAL`;
+  else if (S.screen === 'end') title = 'Oyun bitti · SİNYAL';
+  else if (S.screen === 'game') {
+    const rem = remainingMs();
+    const secs = rem != null && !st.paused ? `(${Math.ceil(rem / 1000)}) ` : '';
+    const cap = isCaptain();
+    const label = st.paused
+      ? '⏸ Duraklatıldı'
+      : st.phase === 'SIGNAL' && cap
+        ? '📡 Sinyal sırası sende!'
+        : st.phase === 'WORD_SETUP' && cap
+          ? '🤐 Kaptan sensin!'
+          : st.phase === 'DISCUSSION' && !cap
+            ? '💬 Tartışma'
+            : st.phase === 'MOLE_VOTE'
+              ? '🕵️ Köstebek oylaması'
+              : PHASE_LABEL[st.phase] ?? '';
+    title = `${secs}${label} · SİNYAL`;
+  }
+  if (document.title !== title) document.title = title;
 }
 
 function renderConn() {
@@ -487,26 +607,31 @@ const LAYOUT = {
       </section>
       <section class="card">
         <div class="row-between"><div class="label">Oyuncular · kaptan sırası</div><span id="l-count" class="muted small"></span></div>
-        <ol class="player-list" id="l-players"></ol>
-        <div id="l-order" class="muted small" style="margin-top:8px"></div>
+        <ol class="player-list" id="l-players" data-memo></ol>
+        <div id="l-order" class="muted small" style="margin-top:8px" data-memo></div>
       </section>
-      <div class="actions" id="l-actions"></div>
+      <div class="actions" id="l-actions" data-memo></div>
       ${RULES}
       <div style="text-align:center"><button class="link" data-action="leave">Odadan ayrıl</button></div>
     </main>`,
   game: () => `
     <main class="game">
-      <header class="topbar" id="g-top"></header>
-      <section class="phasebar" id="g-phase"></section>
-      <div class="meta" id="g-meta"></div>
-      <div id="g-secret"></div>
-      <section class="board" id="g-board"></section>
-      <section class="panel" id="g-panel"></section>
-      <div class="dock"><div class="typed" id="g-typed"></div><div class="keyboard" id="g-keyboard"></div></div>
-      <div class="players" id="g-players"></div>
-      <div id="g-host" class="actions"></div>
+      <header class="topbar" id="g-top" data-memo></header>
+      <section class="phasebar" id="g-phase" data-memo></section>
+      <div class="col-main">
+        <section class="board" id="g-board" data-memo></section>
+        <div class="dock"><div class="typed" id="g-typed" data-memo></div><div class="keyboard" id="g-keyboard" data-memo></div></div>
+      </div>
+      <aside class="col-side">
+        <div class="meta" id="g-meta" data-memo></div>
+        <div id="g-secret" data-memo></div>
+        <section class="panel" id="g-panel" data-memo></section>
+        <div class="players" id="g-players" data-memo></div>
+        <div id="g-host" class="actions" data-memo></div>
+        ${RULES}
+      </aside>
     </main>`,
-  end: () => `<main class="end" id="e-main"></main>`,
+  end: () => `<main class="end" id="e-main" data-memo></main>`,
 };
 
 const MOUNT = {
@@ -578,7 +703,8 @@ function updateLobby() {
         ${
           isHost()
             ? `<button class="icon small" data-action="move" data-id="${p.id}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="yukarı">↑</button>
-               <button class="icon small" data-action="move" data-id="${p.id}" data-dir="1" ${i === players.length - 1 ? 'disabled' : ''} aria-label="aşağı">↓</button>`
+               <button class="icon small" data-action="move" data-id="${p.id}" data-dir="1" ${i === players.length - 1 ? 'disabled' : ''} aria-label="aşağı">↓</button>
+               ${p.id !== S.me.playerId ? `<button class="icon small danger" data-action="kick" data-id="${p.id}" title="Odadan çıkar" aria-label="çıkar">✕</button>` : ''}`
             : ''
         }
       </li>`,
@@ -714,9 +840,37 @@ function renderSecret() {
       <div class="line"><span class="label" style="margin:0">Tuzak</span>${info.traps.map((t) => miniTiles(t, 'trap-w')).join(' ')}</div>
       <div class="line"><span class="label" style="margin:0">Yasak harfler</span>${info.forbidden
         .map((c) => `<span class="forbidden-chip">${esc(c)}</span>`)
-        .join('')}${mole ? '' : '<span class="muted small">sinyalde hiçbir yerde kullanılamaz</span>'}</div>`
+        .join('')}${mole ? '' : '<span class="muted small">sinyalde hiçbir yerde kullanılamaz</span>'}</div>
+      ${!mole && info.categoryWords ? categoryWordsHtml(info) : ''}`
       }
     </div>`;
+}
+
+/** Kategori kilidinde kaptana, kabul edilen ve henüz kullanılmamış sinyaller gösterilir. */
+function categoryWordsHtml(info) {
+  const used = new Set((S.state.word?.board ?? []).map((r) => r.word).filter(Boolean));
+  const words = info.categoryWords.filter((w) => !used.has(w));
+  return `<div class="cat-box">
+    <div class="label" style="margin:0">🏷️ “${esc(info.category)}” kategorisinde geçerli sinyaller</div>
+    <div class="cat-words">${
+      words.length
+        ? words.map((w) => `<button class="chip-btn" data-action="fill" data-word="${esc(w)}">${esc(w)}</button>`).join('')
+        : '<span class="muted small">Kullanılabilir kelime kalmadı.</span>'
+    }</div>
+  </div>`;
+}
+
+/** Sunucuyla aynı kural: mevcut kaptandan sonraki ilk bağlı oyuncu. */
+function nextCaptainId() {
+  const st = S.state;
+  const order = st?.players ?? [];
+  const n = order.length;
+  const i = order.findIndex((p) => p.id === st?.word?.captainId);
+  for (let k = 1; k <= n; k++) {
+    const p = order[(((i + k) % n) + n) % n];
+    if (p.connected) return p.id;
+  }
+  return null;
 }
 
 function rowHtml(row, len, i, opts) {
@@ -867,7 +1021,18 @@ function revealHtml(st) {
     </div>
     ${mole}
     <div class="muted">🎙️ Kaptan ${esc(playerName(r.captainId))} artık konuşabilir: sinyallerini açıklasın!</div>
+    ${nextCaptainLine()}
     ${isHost() ? '<button class="primary" data-action="skip-reveal">Devam</button>' : ''}`;
+}
+
+function nextCaptainLine() {
+  const st = S.state;
+  if (st.run.lives <= 0) return '<div><b>Canlar bitti</b> — sonuçlar geliyor…</div>';
+  const next = nextCaptainId();
+  if (!next) return '';
+  return next === S.me.playerId
+    ? '<div class="next-cap me">⏭ Sıradaki kaptan <b>sensin</b> — hazırlan!</div>'
+    : `<div class="next-cap">⏭ Sıradaki kaptan: <b>${esc(playerName(next))}</b></div>`;
 }
 
 function canType() {
@@ -959,15 +1124,21 @@ function renderKeyboard() {
 function renderPlayers() {
   const st = S.state;
   const w = st.word;
+  const next = w ? nextCaptainId() : null;
   document.getElementById('g-players').innerHTML = st.players
     .map((p, i) => {
       const captain = w && p.id === w.captainId;
-      return `<span class="pchip ${captain ? 'captain' : ''} ${p.id === S.me.playerId ? 'me' : ''}">
+      const edit = S.editOrder && isHost();
+      return `<span class="pchip ${captain ? 'captain' : ''} ${p.id === S.me.playerId ? 'me' : ''}" title="${
+        captain ? 'Kaptan' : p.id === next ? 'Sıradaki kaptan' : ''
+      }">
         <span class="dot ${p.connected ? '' : 'off'}"></span>
-        ${i + 1}. ${esc(p.name)}${captain ? ' 🤐' : ''}${p.id === st.hostId ? ' 👑' : ''}
+        ${i + 1}. ${esc(p.name)}${captain ? ' 🤐' : ''}${p.id === next && !captain ? ' ⏭' : ''}${p.id === st.hostId ? ' 👑' : ''}
         ${
-          S.editOrder && isHost()
-            ? `<button class="icon small" data-action="move" data-id="${p.id}" data-dir="-1" ${i === 0 ? 'disabled' : ''}>↑</button><button class="icon small" data-action="move" data-id="${p.id}" data-dir="1" ${i === st.players.length - 1 ? 'disabled' : ''}>↓</button>`
+          edit
+            ? `<button class="icon small" data-action="move" data-id="${p.id}" data-dir="-1" ${i === 0 ? 'disabled' : ''}>↑</button><button class="icon small" data-action="move" data-id="${p.id}" data-dir="1" ${i === st.players.length - 1 ? 'disabled' : ''}>↓</button>${
+                p.id !== S.me.playerId ? `<button class="icon small danger" data-action="kick" data-id="${p.id}" title="Odadan çıkar">✕</button>` : ''
+              }`
             : ''
         }
       </span>`;
@@ -981,7 +1152,7 @@ function renderHostBar() {
   const hostPaused = st.pauseReasons.includes('host');
   el.innerHTML = `
     ${isHost() ? `<button class="small" data-action="pause">${hostPaused ? '▶ Devam ettir' : '⏸ Duraklat'}</button>` : ''}
-    ${isHost() ? `<button class="small" data-action="edit-order">${S.editOrder ? '✓ Sıra tamam' : '↕ Kaptan sırası'}</button>` : ''}
+    ${isHost() ? `<button class="small" data-action="edit-order">${S.editOrder ? '✓ Tamam' : '↕ Sıra / oyuncular'}</button>` : ''}
     <button class="small link" data-action="leave">Ayrıl</button>`;
 }
 
@@ -1038,7 +1209,7 @@ function updateEnd() {
           .join('')}
       </table></div>
     </section>
-    <details class="card">
+    <details class="card" id="stats-details" ${S.statsOpen ? 'open' : ''}>
       <summary style="cursor:pointer;font-weight:700">Oyuncu istatistikleri</summary>
       <div class="table-wrap"><table>
         <tr><th>Oyuncu</th><th>Kaptan</th><th>Çözdü</th><th>Ort. satır</th><th>⭐</th><th>Öneri</th><th>Gönderilen</th><th>Doğru</th><th>Tuzak</th><th>Köstebek</th><th>Başarılı</th><th>Yakalandı</th><th>Doğru oy</th></tr>
@@ -1239,6 +1410,12 @@ document.addEventListener('click', (e) => {
     case 'approve':
       send({ type: 'approve', proposalId: id });
       break;
+    case 'fill':
+      if (isCaptain() && canType()) setTyped(btn.dataset.word);
+      break;
+    case 'kick':
+      if (confirm(`${playerName(id)} odadan çıkarılsın mı?`)) send({ type: 'kick', playerId: id });
+      break;
     case 'pass':
       send({ type: 'propose_pass' });
       break;
@@ -1273,22 +1450,54 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+document.addEventListener(
+  'toggle',
+  (e) => {
+    if (e.target.id === 'stats-details') S.statsOpen = e.target.open;
+  },
+  true,
+);
+
 // Sayaçları sunucudaki endsAt'e göre çiz.
 setInterval(() => {
-  if (S.screen === 'game') renderPhase();
+  if (S.screen === 'game') {
+    renderPhase();
+    updateTitle();
+  }
 }, 250);
 
-// Köstebek oyu kelime değişince sıfırlanır.
-let lastVoteWord = null;
+// Kalp atışı ve sekmeye dönünce hemen yeniden bağlanma (mobil tarayıcılar arka planda soketi keser).
+setInterval(heartbeat, 15_000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') reconnectNow();
+});
+window.addEventListener('online', reconnectNow);
+
+// Odadayken sunucuya ara sıra HTTP isteği: ücretsiz barındırmada (Render) oyun ortasında uykuya geçmesin.
 setInterval(() => {
-  const k = S.state?.run?.wordIndex;
-  if (k !== lastVoteWord) {
-    lastVoteWord = k;
-    S.myVote = null;
-  }
-}, 500);
+  if (S.me && S.connected) fetch('/health', { cache: 'no-store' }).catch(() => {});
+}, 4 * 60_000);
+
+// iOS/Safari: ses ancak bir dokunuştan sonra açılabilir.
+document.addEventListener(
+  'pointerdown',
+  () => {
+    try {
+      actx ??= new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === 'suspended') actx.resume();
+    } catch {
+      /* ses yok */
+    }
+  },
+  { passive: true },
+);
 
 // ───────────────────────── başlat ─────────────────────────
 
+const flash = local.get('sinyal.flash', null);
+if (flash) {
+  local.set('sinyal.flash', null);
+  setTimeout(() => toast(flash, 'err'), 100);
+}
 render();
 if (S.me) connect(rejoin);

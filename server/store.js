@@ -78,7 +78,20 @@ export class TeamStore {
     if (!this.backend || !this.dirty.size) return;
     const keys = [...this.dirty];
     this.dirty.clear();
-    await this.backend.save(keys.map((k) => [k, this.teams.get(k)]), this.teams);
+    try {
+      await this.backend.save(keys.map((k) => [k, this.teams.get(k)]), this.teams);
+    } catch (err) {
+      // Yazılamayanlar kaybolmasın: bir sonraki denemede tekrar yazılır.
+      for (const k of keys) this.dirty.add(k);
+      if (!this.retryTimer) {
+        this.retryTimer = setTimeout(() => {
+          this.retryTimer = null;
+          this.flush().catch((e) => console.error('[sinyal] kayıt hatası:', e.message));
+        }, 10_000);
+        this.retryTimer.unref?.();
+      }
+      throw err;
+    }
   }
 }
 
@@ -113,11 +126,25 @@ export class PostgresBackend {
 
   async connect() {
     const { default: pg } = await import('pg');
-    const ssl = /sslmode=disable/.test(this.url) || /@(localhost|127\.0\.0\.1)/.test(this.url) ? false : { rejectUnauthorized: false };
-    this.pool = new pg.Pool({ connectionString: this.url, ssl, max: 3 });
-    await this.pool.query(
-      'CREATE TABLE IF NOT EXISTS sinyal_teams (key TEXT PRIMARY KEY, data JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())',
-    );
+    const createTable =
+      'CREATE TABLE IF NOT EXISTS sinyal_teams (key TEXT PRIMARY KEY, data JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())';
+    // Adreste sslmode varsa ona uyulur. Yoksa önce SSL denenir (Render dış adresi, Neon, Supabase…),
+    // sunucu SSL desteklemiyorsa (Render iç adresi, yerel kurulum) SSL'siz bağlanılır.
+    const attempts = /sslmode=/.test(this.url) ? [undefined] : [{ rejectUnauthorized: false }, false];
+    let lastErr;
+    for (const ssl of attempts) {
+      const pool = new pg.Pool({ connectionString: this.url, ...(ssl === undefined ? {} : { ssl }), max: 3 });
+      pool.on('error', (err) => console.error('[sinyal] PostgreSQL bağlantı hatası:', err.message));
+      try {
+        await pool.query(createTable);
+        this.pool = pool;
+        return;
+      } catch (err) {
+        lastErr = err;
+        await pool.end().catch(() => {});
+      }
+    }
+    throw lastErr;
   }
 
   async loadAll() {
@@ -137,17 +164,25 @@ export class PostgresBackend {
   }
 }
 
+function fileStore() {
+  const backend = new FileBackend(path.resolve(process.env.DATA_DIR || 'storage'));
+  console.log(`[sinyal] takım kayıtları: ${backend.file}`);
+  return new TeamStore(backend);
+}
+
+/** Veritabanına ulaşılamazsa oyun yine açılır; kayıtlar dosyaya yazılır. */
 export async function createStore() {
-  let backend;
   if (process.env.DATABASE_URL) {
-    backend = new PostgresBackend(process.env.DATABASE_URL);
-    console.log('[sinyal] takım kayıtları: PostgreSQL');
-  } else {
-    const dir = path.resolve(process.env.DATA_DIR || 'storage');
-    backend = new FileBackend(dir);
-    console.log(`[sinyal] takım kayıtları: ${backend.file}`);
+    const store = new TeamStore(new PostgresBackend(process.env.DATABASE_URL));
+    try {
+      await store.init();
+      console.log('[sinyal] takım kayıtları: PostgreSQL');
+      return store;
+    } catch (err) {
+      console.error(`[sinyal] PostgreSQL'e bağlanılamadı (${err.message}); kayıtlar dosyaya yazılacak.`);
+    }
   }
-  const store = new TeamStore(backend);
+  const store = fileStore();
   await store.init();
   return store;
 }

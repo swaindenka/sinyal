@@ -787,6 +787,45 @@ input[type='text']:focus {
   text-decoration: line-through;
 }
 
+/* kategori kelimeleri */
+
+.cat-box {
+  display: grid;
+  gap: 6px;
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
+}
+
+.cat-words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.chip-btn {
+  padding: 4px 10px;
+  font-size: 13px;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.next-cap {
+  color: var(--blue);
+}
+
+.next-cap.me {
+  font-weight: 800;
+}
+
+button.icon.danger {
+  border-color: rgba(229, 72, 77, 0.6);
+  color: var(--red);
+  background: transparent;
+}
+
 /* oyuncular */
 
 .players {
@@ -994,9 +1033,77 @@ th {
   gap: 12px;
 }
 
+/* Oyun ekranı: mobilde tek sütun (sıra order ile), masaüstünde iki sütun. */
+.col-main,
+.col-side {
+  display: contents;
+}
+
+.game > .topbar {
+  order: 1;
+}
+.game > .phasebar {
+  order: 2;
+}
+#g-meta {
+  order: 3;
+}
+#g-secret {
+  order: 4;
+}
+#g-board {
+  order: 5;
+}
+#g-panel {
+  order: 6;
+}
+.dock {
+  order: 7;
+}
+#g-players {
+  order: 8;
+}
+#g-host {
+  order: 9;
+}
+.col-side > .rules {
+  order: 10;
+}
+
+#g-secret:empty {
+  display: none;
+}
+
 @media (min-width: 700px) {
   .board {
     --tile: 50px;
+  }
+}
+
+@media (min-width: 980px) {
+  .wrap.screen-game {
+    max-width: 1120px;
+  }
+  .game {
+    grid-template-columns: minmax(0, 1fr) 390px;
+    column-gap: 22px;
+    align-items: start;
+  }
+  .game > .topbar,
+  .game > .phasebar {
+    grid-column: 1 / -1;
+  }
+  .col-main,
+  .col-side {
+    display: grid;
+    gap: 10px;
+    align-content: start;
+    min-width: 0;
+    order: 3;
+  }
+  .col-side {
+    position: sticky;
+    top: 12px;
   }
 }
 
