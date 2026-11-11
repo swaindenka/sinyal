@@ -1,0 +1,10 @@
+# TDK listesinde olmayan ama günlük dilde yaygın kelimeler (sinyal/tahmin olarak kabul edilir).
+internet
+abi
+emoji
+selfie
+blog
+vlog
+podcast
+laptop
+online

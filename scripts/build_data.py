@@ -14,6 +14,7 @@ Ne yapar:
   puzzles.json       Bulmacalar (approved alanıyla)
   puzzles_review.csv Elle onay için CSV
   categories.json    Kategori kilidi kartı için kelimeler
+Girdi listeleri: secret_exclude.txt, extra_words.txt, profanity_*.txt, categories_source.json
 
 Kullanım:
   pip install wordfreq
@@ -234,6 +235,9 @@ def main() -> None:
     ensure_raw()
 
     words = load_dictionary()
+    for w in load_word_list(DATA / "extra_words.txt"):
+        if is_valid(w):
+            words.setdefault(w, tr_lower(w))
     bad = load_profanity()
     removed = sorted(set(words) & bad)
     for w in removed:

@@ -20,6 +20,13 @@ Odayı kuran kişi davet linkini paylaşır (`/?oda=KOD`); diğerleri adını ya
 Aynı tarayıcıda farklı sekmeler farklı oyuncu sayılır, böylece tek başına da deneyebilirsin
 (`npm run dev` ile 2 sekme yeterli).
 
+**Oda sahibi** takım adını belirler, kaptan sırasını düzenler ya da karıştırır, oyunu duraklatır,
+hesaplaşmayı erken bitirir ve gerekirse bir oyuncuyu odadan çıkarır (ör. ekran başında olmayan biri
+onay eşiğini tıkıyorsa). Oda sahibi 10 sn'den uzun koparsa yetki sıradaki bağlı oyuncuya geçer.
+
+Sayfayı yenileyen ya da bağlantısı kopan oyuncu 60 sn içinde döndüğünde yerini korur; kaptan
+koparsa oyun 30 sn bekler. Telefonda sekmeye geri dönüldüğünde bağlantı hemen yenilenir.
+
 ## Render'da yayınlama
 
 **Blueprint ile (önerilen):** Render Dashboard → **New → Blueprint** → bu repoyu seç.
@@ -39,6 +46,10 @@ WebSocket bağlantıları Render'da ek ayar gerektirmez; sunucu `PORT` değişke
 | `SINYAL_DEV` | `1` ise geliştirme modu: 2 oyuncuyla başlanabilir |
 | `SINYAL_CONFIG` | Başka bir config dosyası yolu |
 
+> **Ücretsiz plan uykusu:** Render ücretsiz servisi 15 dk istek almazsa uyur ve ilk açılış ~1 dk
+> sürebilir. Odada oyuncu varken istemci birkaç dakikada bir `/health` isteği atar, böylece oyun
+> ortasında uykuya geçmez.
+>
 > **Not:** Render'ın ücretsiz planında disk kalıcı değildir; servis uyuyup uyandığında ya da yeniden
 > deploy edildiğinde `storage/` sıfırlanır. Takım rekorlarının kalıcı olmasını istiyorsan
 > `DATABASE_URL` olarak bir PostgreSQL adresi ver (Render Postgres, Neon, Supabase…). Tablo
@@ -67,7 +78,8 @@ sunucunun çalışması için Python gerekmez.
 | `puzzles.json` | Bulmacalar: gizli kelime, tuzaklar, yasak harfler, seviye, `approved` |
 | `puzzles_review.csv` | Elle onay için CSV çıktısı |
 | `categories.json` | Kategori kilidi kartı için kelimeler (`categories_source.json`'dan süzülür) |
-| `secret_exclude.txt` | Gizli kelime olmaması gereken bağlaç, edat vb. |
+| `secret_exclude.txt` | Gizli kelime olmaması gereken bağlaç, zamirli biçim, özel isim gibi duran kelimeler |
+| `extra_words.txt` | TDK listesinde olmayan ama yaygın kelimeler (internet, emoji…) |
 | `profanity_extra.txt` / `profanity_allow.txt` | Küfür filtresine ekler / istisnalar |
 
 Kaynaklar: TDK kelime listesi ([mertemin/turkish-word-list](https://github.com/mertemin/turkish-word-list)),

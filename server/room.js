@@ -60,7 +60,18 @@ const TEAM_MAX = 24;
 const WORD_MAX = 12;
 
 export class Room {
-  constructor({ code, config, dictionary, puzzles, store, clock = realClock, rng = Math.random, send = () => {}, onEmpty = () => {} }) {
+  constructor({
+    code,
+    config,
+    dictionary,
+    puzzles,
+    store,
+    clock = realClock,
+    rng = Math.random,
+    send = () => {},
+    disconnectPlayer = () => {},
+    onEmpty = () => {},
+  }) {
     this.code = code;
     this.config = config;
     this.dictionary = dictionary;
@@ -69,6 +80,7 @@ export class Room {
     this.clock = clock;
     this.rng = rng;
     this.sendFn = send;
+    this.disconnectPlayerFn = disconnectPlayer;
     this.onEmpty = onEmpty;
 
     this.players = new Map();
@@ -223,6 +235,7 @@ export class Room {
   }
 
   rejoin(p, name) {
+    if (p.kicked && p.left) throw new GameError('KICKED');
     if (p.left) {
       // 60 sn'den sonra dönen oyuncu yerini kaybetmiştir: sıranın sonuna eklenir.
       if (this.activePlayers().length >= this.config.maxPlayers) throw new GameError('ROOM_FULL');
@@ -234,6 +247,7 @@ export class Room {
       this.order.push(p.id);
       this.run?.participants.add(p.id);
     }
+    if (!p.connected) this.emit('reconnect', { playerId: p.id, name: p.name });
     p.connected = true;
     this.clearTimer(p.leaveTimer);
     p.leaveTimer = null;
@@ -262,7 +276,7 @@ export class Room {
       this.word.moleVoteSkipped = true;
       this.enterReveal();
     }
-    this.emit('disconnect', { playerId });
+    this.emit('disconnect', { playerId, name: p.name });
     this.afterConnectionChange();
     this.changed();
   }
@@ -288,7 +302,7 @@ export class Room {
       return;
     }
     if (this.hostId === playerId) this.transferHost(true);
-    this.emit('leave', { playerId });
+    this.emit('leave', { playerId, name: p.name });
     if (wasCaptain) this.cancelWord();
     else if (this.phase === Phase.MOLE_VOTE && this.word?.moleId === playerId) {
       this.word.moleVoteSkipped = true;
@@ -376,7 +390,9 @@ export class Room {
     if (!w || !(WORD_PHASES.has(this.phase) || this.phase === Phase.MOLE_VOTE)) return;
     const { secret, traps, forbidden } = w.puzzle;
     if (w.captainId === playerId) {
-      this.send(playerId, { type: 'captain_info', wordIndex: this.run.wordIndex, secret, traps, forbidden, category: w.category });
+      // Kategori kilidinde kaptan, kategoride kabul edilen kelimeleri görür (yasak harfliler hariç).
+      const categoryWords = w.category ? this.dictionary.categorySignals(w.category, secret.length, forbidden).sort((a, b) => a.localeCompare(b, 'tr')) : null;
+      this.send(playerId, { type: 'captain_info', wordIndex: this.run.wordIndex, secret, traps, forbidden, category: w.category, categoryWords });
     }
     if (w.moleId === playerId) {
       this.send(playerId, { type: 'mole_info', wordIndex: this.run.wordIndex, secret, traps, forbidden });
@@ -520,6 +536,10 @@ export class Room {
         case 'vote_mole':
           this.voteMole(p, msg.playerId);
           break;
+        case 'kick':
+          this.requireHost(p);
+          this.kick(p, msg.playerId);
+          return;
         case 'leave':
           this.markLeft(p.id);
           return;
@@ -560,6 +580,17 @@ export class Room {
     p.lastProposalAt = now;
   }
 
+  /** Oda sahibi bir oyuncuyu çıkarır (ör. ekran başında olmayan biri onay eşiğini tıkıyorsa). */
+  kick(host, targetId) {
+    const t = this.players.get(targetId);
+    if (!t || t.left || t.id === host.id) throw new GameError('INVALID_KICK');
+    t.kicked = true;
+    this.send(t.id, { type: 'kicked' });
+    this.disconnectPlayerFn(t.id);
+    this.emit('kick', { playerId: t.id, name: t.name });
+    this.markLeft(t.id);
+  }
+
   togglePause(paused) {
     if (!ACTIVE_PHASES.has(this.phase)) throw new GameError('NOT_ALLOWED_IN_PHASE');
     const want = paused === undefined ? !this.pauseReasons.has('host') : Boolean(paused);
@@ -568,6 +599,7 @@ export class Room {
     this.emit(want ? 'paused' : 'resumed');
     this.applyPause();
     if (!this.isPaused() && this.phase === Phase.DISCUSSION) this.checkProposals();
+    if (!this.isPaused() && this.phase === Phase.MOLE_VOTE) this.checkMoleVoteComplete();
   }
 
   reorder(order) {
@@ -1051,7 +1083,7 @@ export class Room {
   }
 
   checkMoleVoteComplete() {
-    if (this.phase !== Phase.MOLE_VOTE) return;
+    if (this.phase !== Phase.MOLE_VOTE || this.isPaused()) return;
     const voters = this.connectedPlayers();
     if (voters.length && voters.every((v) => this.word.votes.has(v.id))) this.resolveMoleVote();
   }
