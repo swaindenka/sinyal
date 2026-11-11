@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import csv
 import itertools
+import math
 import json
 import sys
 import urllib.request
@@ -132,23 +133,69 @@ def load_word_list(path: Path) -> set[str]:
     return {tr_upper(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip() and not l.startswith("#")}
 
 
-def tier_index(cfg: dict, length: int, trap_count: int, consonant_only: bool, max_rank: int) -> int:
-    """Bulmacanın uyduğu en düşük seviye (yoksa -1)."""
+def tier_index(cfg: dict, puzzle: dict) -> int:
+    """Bulmacanın uyduğu en düşük seviye (yoksa -1). Sunucudaki PuzzleBank.matchesTier ile aynı kural."""
     for i, t in enumerate(cfg["tiers"]):
         lo, hi = t["trapRange"]
-        if length not in t["lengths"] or not (lo <= trap_count <= hi):
+        if puzzle["length"] not in t["lengths"] or not (lo <= len(puzzle["traps"]) <= hi):
             continue
-        if t.get("consonantOnly") and not consonant_only:
+        if t.get("consonantOnly") and not puzzle["consonantOnly"]:
             continue
-        if max_rank > t.get("maxRank", cfg["commonWordLimit"]):
+        dlo, dhi = t.get("difficulty", [0, 100])
+        if not (dlo <= puzzle["difficulty"] <= dhi):
+            continue
+        if puzzle["rank"] > t.get("maxRank", cfg["commonWordLimit"]):
             continue
         return i
     return -1
 
 
-def build_puzzles(cfg: dict, common: list[str], ranks: dict[str, int], old_approved: dict[str, bool]) -> list[dict]:
-    lengths = {n for t in cfg["tiers"] for n in t["lengths"]}
+def _norm(x: float, lo: float, hi: float) -> float:
+    return max(0.0, min(1.0, (x - lo) / (hi - lo)))
+
+
+class SignalCounter:
+    """Yasak harfler verildiğinde kaptanın kullanabileceği aynı uzunluktaki sözlük kelimesi oranı."""
+
+    def __init__(self, dictionary: list[str]):
+        self.by_len: dict[int, list[frozenset]] = defaultdict(list)
+        for w in dictionary:
+            self.by_len[len(w)].append(frozenset(w))
+        self.cache: dict[tuple[int, frozenset], float] = {}
+
+    def ratio(self, length: int, forbidden: list[str]) -> float:
+        key = (length, frozenset(forbidden))
+        if key not in self.cache:
+            words = self.by_len[length]
+            ok = sum(1 for letters in words if not (letters & key[1]))
+            self.cache[key] = ok / max(1, len(words))
+        return self.cache[key]
+
+
+def difficulty(secret: str, traps: tuple[str, ...], family: list[str], forbidden: list[str], ranks: dict[str, int], signals: SignalCounter) -> tuple[int, dict]:
+    """0 (kolay) – 100 (zor) arası zorluk puanı ve bileşenleri.
+
+    - nadirlik: gizli kelime ne kadar az kullanılıyor (tahmin etmesi zor)
+    - cazip tuzak: tuzak gizli kelimeden daha yaygınsa tahminciler oraya kayar
+    - şaşırtmaca: aynı kalıba uyan, tuzak olmayan başka kelimeler (boşa satır harcatır)
+    - sesli fark: yasak harflerden biri sesliyse sinyal bulmak çok zorlaşır
+    - sinyal kıtlığı: yasak harfler yüzünden kaptanın kullanabileceği kelime oranı düşükse
+    """
+    log = math.log
+    rarity = _norm(log(ranks[secret]), log(80), log(9000))
+    lure = _norm(log(ranks[secret]) - log(min(ranks[t] for t in traps)), 0, log(30))
+    decoys = _norm(len(family) - 1 - len(traps), 0, 4)
+    vowel = 1.0 if any(c in VOWELS for c in forbidden) else 0.0
+    scarcity = _norm(1 - signals.ratio(len(secret), forbidden), 0.25, 0.75)
+    parts = {"rarity": rarity, "lure": lure, "decoys": decoys, "vowel": vowel, "scarcity": scarcity}
+    score = 100 * (0.42 * rarity + 0.18 * lure + 0.14 * decoys + 0.10 * vowel + 0.16 * scarcity)
+    return round(score), parts
+
+
+def build_puzzles(cfg: dict, common: list[str], ranks: dict[str, int], old_approved: dict[str, bool], dictionary: list[str]) -> list[dict]:
+    lengths = set(cfg.get("puzzleLengths") or {n for t in cfg["tiers"] for n in t["lengths"]})
     max_traps = max(t["trapRange"][1] for t in cfg["tiers"])
+    signals = SignalCounter([w for w in dictionary if len(w) in lengths])
 
     buckets: dict[tuple[str, int], list[str]] = defaultdict(list)
     for word in common:
@@ -165,13 +212,9 @@ def build_puzzles(cfg: dict, common: list[str], ranks: dict[str, int], old_appro
             for k in range(1, min(max_traps, len(others)) + 1):
                 for traps in itertools.islice(itertools.combinations(others, k), TRAP_COMBOS_PER_SECRET):
                     forbidden = [secret[pos]] + [t[pos] for t in traps]
-                    consonant_only = all(c not in VOWELS for c in forbidden)
-                    max_rank = max(ranks[w] for w in (secret, *traps))
-                    tier = tier_index(cfg, len(secret), k, consonant_only, max_rank)
-                    if tier < 0:
-                        continue
+                    score, parts = difficulty(secret, traps, members, forbidden, ranks, signals)
                     pid = f"{secret}:{','.join(traps)}"
-                    puzzles[pid] = {
+                    puzzle = {
                         "id": pid,
                         "secret": secret,
                         "traps": list(traps),
@@ -179,12 +222,17 @@ def build_puzzles(cfg: dict, common: list[str], ranks: dict[str, int], old_appro
                         "pos": pos,
                         "pattern": pattern,
                         "length": len(secret),
-                        "consonantOnly": consonant_only,
-                        "rank": max_rank,
-                        "tier": tier + 1,
+                        "consonantOnly": all(c not in VOWELS for c in forbidden),
+                        "rank": max(ranks[w] for w in (secret, *traps)),
+                        "difficulty": score,
+                        "factors": {k: round(v, 2) for k, v in parts.items()},
                         "approved": old_approved.get(pid, False),
                     }
-    return sorted(puzzles.values(), key=lambda p: (p["tier"], p["rank"], p["id"]))
+                    puzzle["tier"] = tier_index(cfg, puzzle) + 1
+                    if puzzle["tier"] == 0:
+                        continue  # hiçbir seviyeye uymuyor
+                    puzzles[pid] = puzzle
+    return sorted(puzzles.values(), key=lambda p: (p["tier"], p["difficulty"], p["id"]))
 
 
 def build_categories(dictionary: set[str], bad: set[str]) -> dict[str, list[str]]:
@@ -199,10 +247,10 @@ def build_categories(dictionary: set[str], bad: set[str]) -> dict[str, list[str]
 def write_csv(puzzles: list[dict]) -> None:
     with (DATA / "puzzles_review.csv").open("w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["id", "secret", "traps", "forbidden", "tier", "rank", "approved"])
+        w.writerow(["id", "secret", "traps", "forbidden", "tier", "difficulty", "rank", "approved"])
         for p in puzzles:
             w.writerow([p["id"], p["secret"], " ".join(p["traps"]), "".join(p["forbidden"]),
-                        p["tier"], p["rank"], 1 if p["approved"] else 0])
+                        p["tier"], p["difficulty"], p["rank"], 1 if p["approved"] else 0])
 
 
 def apply_approvals(csv_path: Path) -> None:
@@ -259,17 +307,23 @@ def main() -> None:
     if old_path.exists():
         old_approved = {p["id"]: p["approved"] for p in json.loads(old_path.read_text(encoding="utf-8"))}
 
-    puzzles = build_puzzles(cfg, common, ranks, old_approved)
+    puzzles = build_puzzles(cfg, common, ranks, old_approved, list(words))
     old_path.write_text(json.dumps(puzzles, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     write_csv(puzzles)
 
-    by_tier = defaultdict(int)
-    secrets_by_tier = defaultdict(set)
-    for p in puzzles:
-        by_tier[p["tier"]] += 1
-        secrets_by_tier[p["tier"]].add(p["secret"])
-    for t in sorted(by_tier):
-        print(f"seviye {t}: {by_tier[t]} bulmaca, {len(secrets_by_tier[t])} farklı gizli kelime")
+    # Her seviyede seçilebilecek bulmacalar (bir bulmaca birden çok seviyeye uyabilir).
+    for i, t in enumerate(cfg["tiers"]):
+        lo, hi = t["trapRange"]
+        dlo, dhi = t.get("difficulty", [0, 100])
+        pool = [p for p in puzzles
+                if p["length"] in t["lengths"] and lo <= len(p["traps"]) <= hi
+                and (not t.get("consonantOnly") or p["consonantOnly"]) and dlo <= p["difficulty"] <= dhi]
+        by_len = defaultdict(set)
+        for p in pool:
+            by_len[p["length"]].add(p["secret"])
+        detail = ", ".join(f"{n} harf: {len(v)}" for n, v in sorted(by_len.items()))
+        print(f"seviye {i + 1} ({t.get('name', '')}, {t['fromWord']}. kelimeden): {len(pool)} bulmaca, "
+              f"{len({p['secret'] for p in pool})} gizli kelime ({detail})")
 
     cats = build_categories(set(words), bad)
     (DATA / "categories.json").write_text(json.dumps(cats, ensure_ascii=False, indent=1), encoding="utf-8")

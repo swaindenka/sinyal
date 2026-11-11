@@ -15,14 +15,18 @@
   --text-2: #b6bcc8;
   --muted: #7f8796;
 
-  --primary: #6573ff;
-  --primary-hover: #7a86ff;
-  --primary-soft: rgba(101, 115, 255, 0.14);
+  --primary: #8b6cff;
+  --primary-hover: #9c82ff;
+  --primary-soft: rgba(139, 108, 255, 0.15);
   --on-primary: #ffffff;
 
   --green: #2e9e62;
   --yellow: #c99a22;
   --gray: #3a404c;
+  /* Harf renkleri: tam yer / kelimede var / yok */
+  --hit: #1f8fff;
+  --near: #f08c2e;
+  --miss: #3a404c;
   --on-tile: #ffffff;
   --red: #ef5a62;
   --red-soft: rgba(239, 90, 98, 0.12);
@@ -56,13 +60,16 @@
     --text-2: #3d4554;
     --muted: #6b7383;
 
-    --primary: #4f5ce0;
-    --primary-hover: #4250d4;
-    --primary-soft: rgba(79, 92, 224, 0.1);
+    --primary: #6d4fe6;
+    --primary-hover: #5f40d9;
+    --primary-soft: rgba(109, 79, 230, 0.1);
 
     --green: #2a9358;
     --yellow: #c3961b;
     --gray: #828a98;
+    --hit: #0b7be0;
+    --near: #e87a17;
+    --miss: #8d96a6;
     --red: #dc3f48;
     --red-soft: rgba(220, 63, 72, 0.08);
     --gold: #c4880e;
@@ -442,9 +449,9 @@ input {
 .logo span {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 42px;
-  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
   font-weight: 800;
   font-size: 22px;
   color: var(--on-tile);
@@ -455,22 +462,21 @@ input {
 }
 
 .logo.sm span {
-  width: 18px;
-  height: 20px;
-  border-radius: 4px;
-  font-size: 11px;
+  width: 19px;
+  height: 19px;
+  font-size: 10px;
 }
 
 .t-G {
-  background: var(--green);
+  background: var(--hit);
 }
 
 .t-Y {
-  background: var(--yellow);
+  background: var(--near);
 }
 
 .t-X {
-  background: var(--gray);
+  background: var(--miss);
 }
 
 /* ───────────── avatar ───────────── */
@@ -1031,19 +1037,19 @@ input {
 }
 
 .mini span {
-  width: 26px;
+  width: 28px;
   height: 28px;
   display: inline-grid;
   place-items: center;
-  border-radius: 6px;
+  border-radius: 50%;
   font-weight: 750;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--on-tile);
-  background: var(--gray);
+  background: var(--miss);
 }
 
 .mini.secret-w span {
-  background: var(--green);
+  background: var(--hit);
 }
 
 .mini.trap-w span {
@@ -1056,10 +1062,9 @@ input {
 }
 
 .mini.sm span {
-  width: 22px;
+  width: 24px;
   height: 24px;
-  font-size: 12px;
-  border-radius: 5px;
+  font-size: 11px;
 }
 
 .traps {
@@ -1126,50 +1131,25 @@ input {
   color: var(--primary);
 }
 
-/* ───────────── tahta ───────────── */
+/* ───────────── harf noktaları ───────────── */
 
-.board {
-  display: grid;
-  grid-template-columns: max-content;
-  justify-content: center;
-  gap: 5px;
-  --len: 5;
-  --tile: min(48px, calc((100vw - 32px - 72px - 6px * var(--len)) / var(--len)));
-}
-
-.brow {
-  display: grid;
-  grid-template-columns: 28px auto 28px;
-  column-gap: 8px;
-  align-items: center;
-}
-
-.brow .kind {
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-}
-
-.brow .kind.last {
-  color: var(--red);
-  opacity: 0.75;
-}
-
-.tiles {
+.discs {
   display: flex;
   gap: 6px;
+  --disc: 44px;
 }
 
 .tile {
-  width: var(--tile);
-  height: var(--tile);
+  width: var(--disc, 44px);
+  height: var(--disc, 44px);
   display: grid;
   place-items: center;
   font-weight: 750;
-  font-size: calc(var(--tile) * 0.48);
-  border-radius: 8px;
+  font-size: calc(var(--disc, 44px) * 0.45);
+  border-radius: 50%;
   border: 2px solid var(--tile-empty);
   user-select: none;
+  flex: none;
 }
 
 .tile.filled {
@@ -1184,63 +1164,390 @@ input {
 }
 
 .tile.c-G {
-  background: var(--green);
+  background: var(--hit);
 }
 
 .tile.c-Y {
-  background: var(--yellow);
+  background: var(--near);
 }
 
 .tile.c-X {
-  background: var(--gray);
-}
-
-.tile.empty-row {
-  border-style: dashed;
-}
-
-.brow.future .tile {
-  opacity: 0.55;
-}
-
-.brow .by {
-  grid-column: 2;
-  font-size: 12px;
-  line-height: 1.3;
-  color: var(--muted);
-  max-width: calc(var(--tile) * var(--len) + 6px * var(--len));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-top: 1px;
-}
-
-.brow .by:empty {
-  display: none;
-}
-
-.brow.res-trap .kind,
-.brow.res-trap .by {
-  color: var(--red);
-  font-weight: 600;
-}
-
-.brow.res-correct .kind,
-.brow.res-correct .by {
-  color: var(--green);
-  font-weight: 600;
+  background: var(--miss);
 }
 
 .flip .tile {
-  animation: flip 0.42s ease both;
+  animation: pop-in 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
 }
 
-@keyframes flip {
+@keyframes pop-in {
   from {
-    transform: rotateX(90deg);
+    transform: scale(0.3);
+    opacity: 0;
   }
   to {
-    transform: rotateX(0);
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* ───────────── masa ───────────── */
+
+.table-card {
+  background: radial-gradient(120% 140% at 50% 0%, var(--primary-soft), transparent 60%), var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 10px 12px;
+}
+
+.seats {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.seat {
+  width: 64px;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.seat .avatar {
+  width: 40px;
+  height: 40px;
+  font-size: 16px;
+}
+
+.seat .sname {
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seat .sname.me {
+  color: var(--primary);
+}
+
+.seat .vote {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-height: 16px;
+}
+
+.seat .vote:empty {
+  visibility: hidden;
+}
+
+.seat .vote.on {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.seat .badges {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  display: flex;
+  gap: 2px;
+}
+
+.seat .ava-wrap {
+  position: relative;
+}
+
+.seat .badges .b {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+}
+
+.seat .badges .b.host {
+  color: var(--gold);
+}
+
+.seat .badges .b.next {
+  color: var(--text-2);
+}
+
+.seat.captain {
+  width: 92px;
+}
+
+.seat.captain .avatar {
+  width: 56px;
+  height: 56px;
+  font-size: 22px;
+  box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--primary);
+}
+
+.seat.captain .role {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.seat.off {
+  opacity: 0.5;
+}
+
+/* ───────────── kelime kartı: bildiklerimiz + tuzak konumu ───────────── */
+
+.wordcard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.wordcard .facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.wordcard .facts .sep {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.6;
+}
+
+.known {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+
+.known .discs {
+  --disc: min(40px, calc((100vw - 72px - 6px * var(--len)) / var(--len)));
+}
+
+.known .tile.unknown {
+  border-style: dashed;
+  color: var(--muted);
+  font-size: calc(var(--disc) * 0.38);
+}
+
+.slot {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.slot .mark {
+  height: 14px;
+  color: var(--red);
+  display: grid;
+  place-items: center;
+}
+
+.slot.trap .tile {
+  border-color: var(--red);
+  border-style: solid;
+  box-shadow: 0 0 0 3px var(--red-soft);
+}
+
+.slot.trap .tile.c-G {
+  border-color: var(--red);
+  border-width: 2px;
+}
+
+.trap-note {
+  font-size: 13px;
+  color: var(--red);
+  text-align: center;
+}
+
+.letters-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.letters-line b {
+  letter-spacing: 0.12em;
+  color: var(--text-2);
+}
+
+/* ───────────── akış: kaptanın sinyalleri ───────────── */
+
+.feed {
+  display: grid;
+  gap: 10px;
+}
+
+.msg {
+  display: grid;
+  gap: 6px;
+}
+
+.msg-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.msg-head b {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.bubble {
+  justify-self: start;
+  margin-left: 16px;
+  padding: 12px;
+  border-radius: 6px 18px 18px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  max-width: calc(100% - 16px);
+}
+
+.bubble .discs {
+  --disc: min(46px, calc((100vw - 92px - 6px * var(--len)) / var(--len)));
+}
+
+.msg.empty .bubble {
+  color: var(--muted);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-style: dashed;
+  background: transparent;
+}
+
+.replies {
+  display: grid;
+  gap: 6px;
+  margin-left: 32px;
+}
+
+.reply {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.reply .discs {
+  --disc: 26px;
+  gap: 4px;
+}
+
+.reply .who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 72px;
+}
+
+.reply.res-trap .who,
+.reply.res-trap .res {
+  color: var(--red);
+  font-weight: 700;
+}
+
+.reply.res-correct .who,
+.reply.res-correct .res {
+  color: var(--green);
+  font-weight: 700;
+}
+
+.feed-wait {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px dashed var(--border-strong);
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.typing-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.typing-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  animation: blink 1.2s infinite ease-in-out;
+}
+
+.typing-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes blink {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
   }
 }
 
@@ -1404,7 +1711,8 @@ input {
   background: linear-gradient(to top, var(--bg) 86%, transparent);
 }
 
-.dock:has(> .typed:empty):has(> .keyboard:empty) {
+/* Yazılabilecek bir şey yoksa (ör. hesaplaşma) alt alan tamamen gizlenir. */
+.dock:has(> #g-compose:empty) {
   display: none;
 }
 
@@ -1414,8 +1722,23 @@ input {
   gap: 4px;
 }
 
-.typed .tiles {
-  --tile: min(44px, calc((100vw - 32px - 6px * var(--len)) / var(--len)));
+.typed .discs {
+  --disc: min(44px, calc((100vw - 32px - 6px * var(--len)) / var(--len)));
+}
+
+.composer-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.composer-bar .btn {
+  flex: 1;
+}
+
+.composer-head {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .typed .msg {
@@ -1480,12 +1803,12 @@ input {
 }
 
 .key.c-G {
-  background: var(--green);
+  background: var(--hit);
   color: var(--on-tile);
 }
 
 .key.c-Y {
-  background: var(--yellow);
+  background: var(--near);
   color: var(--on-tile);
 }
 
@@ -1828,34 +2151,40 @@ details.card[open] > summary {
 .game > .turn {
   order: 2;
 }
-#g-info {
+/* Kaptan/köstebek kartı mobilde en üstte: klavye açıkken de gizli kelime görünsün. */
+#g-secret {
   order: 3;
 }
-#g-secret {
+#g-info {
   order: 4;
 }
-#g-board {
+#g-table {
   order: 5;
 }
-#g-panel {
+#g-word {
   order: 6;
 }
-.dock {
+#g-board {
   order: 7;
 }
-#g-people {
+#g-panel {
   order: 8;
 }
-#g-tools {
+.dock {
   order: 9;
 }
-.col-side > .rules {
+#g-tools {
   order: 10;
+}
+.col-side > .rules {
+  order: 11;
 }
 
 #g-secret:empty,
 #g-info:empty,
-#g-panel:empty {
+#g-panel:empty,
+#g-word:empty,
+#g-table:empty {
   display: none;
 }
 
@@ -1898,13 +2227,7 @@ details.card[open] > summary {
   }
 }
 
-/* Telefonda dikey alan kıt: boş satırlardan yalnızca sıradaki gösterilir
-   (kalan satır sayısı üstteki noktalarda görünür). */
-@media (max-width: 699px) {
-  .brow.future ~ .brow.future {
-    display: none;
-  }
-}
+
 
 @media (max-width: 380px) {
   .key {
@@ -1916,9 +2239,15 @@ details.card[open] > summary {
   }
 }
 
-@media (min-width: 700px) {
-  .board {
-    --tile: 52px;
+@media (min-width: 980px) {
+  .bubble .discs {
+    --disc: 48px;
+  }
+  .known .discs {
+    --disc: 40px;
+  }
+  .typed .discs {
+    --disc: 46px;
   }
 }
 

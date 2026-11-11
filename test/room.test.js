@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Phase, computeAwards, emptyStats } from '../server/room.js';
+import { PuzzleBank } from '../server/data.js';
 import { makeRoom, testConfig } from './helpers.js';
 
 const cfg = testConfig();
@@ -426,17 +427,46 @@ test('oyun sırasında katılan oyuncu sıranın sonuna eklenir ve tahminci baş
   assert.ok(h.guessers().some((g) => g.id === late.id));
 });
 
-test('zorluk eğrisi: 4. kelimeden itibaren 5 satır', () => {
+test('zorluk eğrisi: seviye ve satır sayısı kelime numarasına göre değişir', () => {
   const h = makeRoom();
   start(h);
-  for (let i = 0; i < 3; i++) {
+  assert.deepEqual(h.room.publicState().word.tier, { level: 1, name: 'Isınma' });
+  for (let i = 0; i < 6; i++) {
+    if (h.room.run.wordIndex === 4) {
+      assert.equal(h.room.word.rowLimit, 6);
+      assert.equal(h.room.publicState().word.tier.name, 'Kolay');
+    }
     h.toSignal();
     h.signal('ELMAS');
     h.guess(h.secret());
     h.room.handle(h.room.hostId, { type: 'skip_reveal' });
   }
-  assert.equal(h.room.run.wordIndex, 4);
+  assert.equal(h.room.run.wordIndex, 7);
   assert.equal(h.room.word.rowLimit, 5);
+  assert.equal(h.room.publicState().word.tier.name, 'Orta');
+});
+
+test('tuzak konumu açıklanır ama gizli kelimenin harfleri açıklanmaz', () => {
+  const h = makeRoom();
+  start(h);
+  const w = h.room.publicState().word;
+  assert.equal(w.trapPos, h.room.word.puzzle.pos);
+  const off = makeRoom({ config: testConfig({ showTrapPosition: false, chaos: { startWord: 999 } }) });
+  start(off);
+  assert.equal(off.room.publicState().word.trapPos, null);
+});
+
+test('bulmaca havuzu seviyenin zorluk bandına uyar, uymayınca alt seviyeye iner', () => {
+  const config = testConfig();
+  const mk = (id, length, traps, difficulty, consonantOnly = true) => ({
+    id, secret: id, traps: Array.from({ length: traps }, (_, i) => `${id}${i}`), forbidden: [], pos: 0, length, consonantOnly, rank: 100, difficulty,
+  });
+  const bank = new PuzzleBank([mk('A', 5, 1, 10), mk('B', 5, 1, 45), mk('C', 7, 1, 50, false), mk('D', 6, 2, 90, false)], config);
+  const pick = (tier) => bank.pick(tier, () => false, () => 0).puzzle.id;
+  assert.equal(pick(0), 'A'); // Isınma: 0–38
+  assert.equal(pick(2), 'C'); // Orta: 6–7 harf, 30–60
+  assert.equal(pick(4), 'D'); // Çok zor: 6–7 harf, 2 tuzak, 40–100
+  assert.equal(pick(3), 'C'); // Zor (5–6 harf, 2 tuzak, 35–65) boş → Orta'ya iner
 });
 
 test('kaos: kör renk sarıları gri gösterir', () => {

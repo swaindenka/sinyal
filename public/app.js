@@ -21,7 +21,7 @@ const PHASE_LABEL = {
 
 const CHAOS = {
   category: { name: 'Kategori kilidi', icon: 'tag', desc: (w) => `Sinyaller yalnızca “${w.category}” kategorisinden olabilir.` },
-  blind: { name: 'Kör renk', icon: 'eyeOff', desc: () => 'Bu kelimede sarılar gri gösterilir.' },
+  blind: { name: 'Kör renk', icon: 'eyeOff', desc: () => 'Bu kelimede turuncular (kelimede var) gri gösterilir.' },
   fast: { name: 'Hızlı tur', icon: 'zap', desc: () => 'Sinyal ve tartışma süreleri kısaldı.' },
   mole: { name: 'Köstebek', icon: 'ghost', desc: () => 'Tahmincilerden biri gizlice köstebek. Kelime bitince oylama var.' },
 };
@@ -144,6 +144,8 @@ const S = {
   hideSecret: false,
   editOrder: false,
   lastTick: null,
+  composer: false,
+  phaseKey: null,
 };
 
 const params = new URLSearchParams(location.search);
@@ -396,12 +398,20 @@ function onState(prev, st) {
     S.moleInfo = null;
   }
 
+  // Klavye: kaptan sinyal aşamasına girince otomatik açılır, diğer aşama geçişlerinde kapanır.
+  const phaseKey = `${idx}:${st.phase}`;
+  if (phaseKey !== S.phaseKey) {
+    S.phaseKey = phaseKey;
+    S.composer = Boolean(st.word && st.phase === 'SIGNAL' && st.word.captainId === S.me?.playerId);
+  }
+
   if (S.pending && st.word) {
     const done = st.word.board.some((r) => r.word === S.pending) || st.word.proposals.some((p) => p.word === S.pending);
     if (done) {
       S.typed = '';
       S.preview = null;
       S.pending = null;
+      if (st.word.captainId !== S.me?.playerId) S.composer = false;
     }
   }
 
@@ -611,7 +621,7 @@ const RULES = `
   <ul>
     <li>3–8 kişilik <b>tek takım</b> olarak, Discord gibi sesli bir kanalda oynayın.</li>
     <li>Her kelimede biri <b>kaptan</b> olur: gizli kelimeyi görür ama <b>konuşamaz</b>, sadece <b>sinyal kelimesi</b> gönderir.</li>
-    <li>Sinyalin <b>anlamı</b> gizli kelimeyi çağrıştırır; <b>harfleri</b> renklerle gösterilir: yeşil doğru yer, sarı kelimede var, gri yok.</li>
+    <li>Sinyalin <b>anlamı</b> gizli kelimeyi çağrıştırır; <b>harfleri</b> renkli noktalarla gösterilir: mavi tam yerinde, turuncu kelimede var ama başka yerde, gri kelimede yok.</li>
     <li><b>Tuzaklar</b> gizli kelimeden tek harf farklı kelimelerdir; tuzağı tahmin etmek can götürür. Kaptan, farkı veren <b>yasak harfleri</b> kullanamaz — bu ayrımı ancak anlamla verebilir.</li>
     <li>Tahminciler tartışır, tahmin önerir ve onaylar. Çoğunluk onaylayınca tahmin gönderilir. Bir tartışmada en fazla 2 tahmin.</li>
     <li>Her sinyal, tahmin ya da boş satır bir satır harcar. Son satır sadece tahmin içindir.</li>
@@ -644,7 +654,7 @@ const LAYOUT = {
       </section>
       <section class="intro">
         <div class="intro-step"><span class="num">${icon('micOff')}</span><div><b>Kaptan konuşamaz</b><span>Gizli kelimeyi bilen kaptan sadece sinyal kelimeleri gönderir.</span></div></div>
-        <div class="intro-step"><span class="num">${icon('palette')}</span><div><b>Anlam + renkler</b><span>Sinyalin anlamı çağrıştırır, harfleri yeşil/sarı/gri renklerle ipucu verir.</span></div></div>
+        <div class="intro-step"><span class="num">${icon('palette')}</span><div><b>Anlam + renkler</b><span>Sinyalin anlamı çağrıştırır; harfleri mavi/turuncu/gri renklerle ipucu verir.</span></div></div>
         <div class="intro-step"><span class="num">${icon('alert')}</span><div><b>Tuzaklara dikkat</b><span>Tek harf farklı tuzak kelimeyi tahmin etmek can götürür.</span></div></div>
       </section>
       ${RULES}
@@ -690,14 +700,19 @@ const LAYOUT = {
       <header class="topbar" id="g-top" data-memo></header>
       <section class="turn" id="g-turn" data-memo aria-live="polite"></section>
       <div class="col-main">
-        <section class="board" id="g-board" data-memo></section>
-        <div class="dock"><div class="typed" id="g-typed" data-memo></div><div class="keyboard" id="g-keyboard" data-memo></div></div>
+        <section id="g-table" data-memo></section>
+        <section id="g-word" data-memo></section>
+        <section class="feed" id="g-board" data-memo aria-label="Kaptanın sinyalleri"></section>
+        <div class="dock">
+          <div id="g-compose" data-memo></div>
+          <div class="typed" id="g-typed" data-memo></div>
+          <div class="keyboard" id="g-keyboard" data-memo></div>
+        </div>
       </div>
       <aside class="col-side">
-        <div class="stack" id="g-info" data-memo></div>
+        <div id="g-info" data-memo></div>
         <div id="g-secret" data-memo></div>
         <section class="panel" id="g-panel" data-memo></section>
-        <div id="g-people" data-memo></div>
         <div class="toolbar" id="g-tools" data-memo></div>
         ${RULES}
       </aside>
@@ -817,13 +832,15 @@ function playerRow(p, i, total, editable) {
 function updateGame() {
   renderTop();
   renderTurn();
+  renderTable();
+  renderWord();
   renderInfo();
   renderSecret();
   renderBoard();
   renderPanel();
+  renderCompose();
   renderTyped();
   renderKeyboard();
-  renderPeople();
   renderTools();
 }
 
@@ -952,22 +969,124 @@ function renderTurn() {
 
 function renderInfo() {
   const w = S.state.word;
-  const el = document.getElementById('g-info');
+  const card = w?.chaosCard ? CHAOS[w.chaosCard] : null;
+  document.getElementById('g-info').innerHTML = card
+    ? `<div class="callout chaos">${icon(card.icon)}<div><b>Kaos kartı: ${card.name}</b><span>${esc(card.desc(w))}</span></div></div>`
+    : '';
+}
+
+/** Tahtadan çıkan ortak bilgi: kesin yerini bildiğimiz harfler, kelimede olanlar, olmayanlar. */
+function knowledge(w) {
+  const known = Array(w.length).fill(null);
+  const present = new Set();
+  const absent = new Set();
+  for (const row of w.board) {
+    if (!row.colors) continue;
+    [...row.word].forEach((c, i) => {
+      const col = row.colors[i];
+      if (col === 'G') known[i] = c;
+      else if (col === 'Y') present.add(c);
+      else absent.add(c);
+    });
+  }
+  for (const c of known) if (c) present.delete(c);
+  for (const c of [...absent]) if (present.has(c) || known.includes(c)) absent.delete(c);
+  return { known, present: [...present], absent: [...absent] };
+}
+
+/** Kelime kartı: seviye, kurallar, takımın bildikleri ve tuzağın hangi harfte olduğu. */
+function renderWord() {
+  const w = S.state.word;
+  const el = document.getElementById('g-word');
   if (!w) {
     el.innerHTML = '';
     return;
   }
   const used = w.rowLimit - w.rowsRemaining;
   const dots = Array.from({ length: w.rowLimit }, (_, i) => `<i class="${i < used ? 'used' : ''}"></i>`).join('');
-  const card = w.chaosCard ? CHAOS[w.chaosCard] : null;
+  const k = knowledge(w);
+  const blind = w.chaosCard === 'blind';
+  const slots = k.known
+    .map((c, i) => {
+      const trap = w.trapPos === i;
+      return `<div class="slot ${trap ? 'trap' : ''}" ${trap ? 'title="Tuzak bu harfte"' : ''}><div class="tile ${c ? 'c-G' : 'unknown'}">${c ? esc(c) : '?'}</div></div>`;
+    })
+    .join('');
+  const trapNote =
+    w.trapPos != null
+      ? `<div class="trap-note">${icon('alert', { size: 14 })} ${w.trapCount > 1 ? `${w.trapCount} tuzak` : 'Tuzak'} gizli kelimeden yalnızca <b>${w.trapPos + 1}. harfte</b> ayrılıyor</div>`
+      : '';
+  const letters = [];
+  if (k.present.length) letters.push(`<span>Kelimede var: <b>${esc(k.present.join(' '))}</b></span>`);
+  if (k.absent.length && !blind) letters.push(`<span>Yok: <b>${esc(k.absent.join(' '))}</b></span>`);
+  if (blind && w.board.length) letters.push('<span>Kör renk: turuncular gri görünüyor</span>');
   el.innerHTML = `
-    <div class="wordinfo">
-      <span><b>${w.length}</b> harf</span><i class="sep"></i>
-      <span><b>${w.trapCount}</b> tuzak</span><i class="sep"></i>
-      <span><b>${w.forbiddenCount}</b> yasak harf</span>
-      <span class="rows-meter" title="Kullanılan satır"><span class="dots">${dots}</span><span>Satır ${used}/${w.rowLimit}</span></span>
+    <div class="wordcard">
+      <div class="facts">
+        <span class="tag primary">Seviye ${w.tier?.level ?? ''}${w.tier?.name ? ` · ${esc(w.tier.name)}` : ''}</span>
+        <span><b>${w.length}</b> harf</span><i class="sep"></i>
+        <span><b>${w.trapCount}</b> tuzak</span><i class="sep"></i>
+        <span><b>${w.forbiddenCount}</b> yasak harf</span>
+        <span class="rows-meter" title="Kullanılan satır"><span class="dots">${dots}</span><span>${used}/${w.rowLimit}</span></span>
+      </div>
+      <div class="known">
+        <div class="discs" style="--len:${w.length}">${slots}</div>
+        ${trapNote}
+        ${letters.length ? `<div class="letters-line">${letters.join('')}</div>` : ''}
+      </div>
+      <div class="legend"><span><i style="background:var(--hit)"></i>Tam yer</span><span><i style="background:var(--near)"></i>Kelimede var</span><span><i style="background:var(--miss)"></i>Yok</span></div>
+    </div>`;
+}
+
+/** Masa: kaptan ortada, tahminciler iki yanında; herkesin altında o an desteklediği öneri. */
+function renderTable() {
+  const st = S.state;
+  const w = st.word;
+  const el = document.getElementById('g-table');
+  if (S.editOrder && isHost()) {
+    el.innerHTML = `<section class="card">
+      <div class="spread" style="margin-bottom:4px"><div class="label">Kaptan sırası ve oyuncular</div>
+      <button class="btn sm ghost" data-action="edit-order">Tamam</button></div>
+      <ol class="plist">${st.players.map((p, i) => playerRow(p, i, st.players.length, true)).join('')}</ol>
+    </section>`;
+    return;
+  }
+  if (!w) {
+    el.innerHTML = '';
+    return;
+  }
+  const next = nextCaptainId();
+  const voteOf = (id) => {
+    if (st.phase === 'MOLE_VOTE') return (w.votedIds || []).includes(id) ? { text: 'oy verdi', on: true } : null;
+    const prop = w.proposals.find((x) => x.kind !== 'bank' && x.approvals.includes(id));
+    if (!prop) return null;
+    return { text: prop.kind === 'pass' ? 'PAS' : prop.word, on: true };
+  };
+  const seat = (p) => {
+    const vote = voteOf(p.id);
+    const badges = [];
+    if (p.id === st.hostId) badges.push(`<span class="b host" title="Oda sahibi">${icon('crown', { size: 11 })}</span>`);
+    if (p.id === next) badges.push(`<span class="b next" title="Sıradaki kaptan">${icon('skip', { size: 10 })}</span>`);
+    if (!p.connected) badges.push(`<span class="b" title="Bağlantı yok">${icon('wifiOff', { size: 10 })}</span>`);
+    return `<div class="seat ${p.connected ? '' : 'off'}">
+      <div class="ava-wrap">${avatar(p)}<span class="badges">${badges.join('')}</span></div>
+      <div class="sname ${p.id === S.me.playerId ? 'me' : ''}">${p.id === S.me.playerId ? 'Sen' : esc(p.name)}</div>
+      <div class="vote ${vote?.on ? 'on' : ''}">${vote ? esc(vote.text) : ''}</div>
+    </div>`;
+  };
+  const captain = playerById(w.captainId);
+  const others = st.players.filter((p) => p.id !== w.captainId);
+  const half = Math.ceil(others.length / 2);
+  const capHost = captain.id === st.hostId ? `<span class="badges"><span class="b host" title="Oda sahibi">${icon('crown', { size: 11 })}</span></span>` : '';
+  el.innerHTML = `<div class="table-card"><div class="seats">
+    ${others.slice(0, half).map(seat).join('')}
+    <div class="seat captain ${captain.connected === false ? 'off' : ''}">
+      <div class="ava-wrap">${avatar(captain)}${capHost}</div>
+      <div class="sname ${captain.id === S.me.playerId ? 'me' : ''}">${captain.id === S.me.playerId ? 'Sen' : esc(captain.name)}</div>
+      <div class="role">${icon('micOff', { size: 12 })} Kaptan</div>
     </div>
-    ${card ? `<div class="callout chaos">${icon(card.icon)}<div><b>Kaos kartı: ${card.name}</b><span>${esc(card.desc(w))}</span></div></div>` : ''}`;
+    ${others.slice(half).map(seat).join('')}
+  </div></div>`;
 }
 
 function renderSecret() {
@@ -1031,48 +1150,59 @@ function nextCaptainId() {
   return null;
 }
 
-const ROW_ICON = { signal: 'signal', guess: 'target', empty: 'clock' };
-
-function rowHtml(row, len, opts) {
-  if (!row) {
-    return `<div class="brow future" ${opts.last ? 'title="Son satır: yalnızca tahmin"' : ''}>
-      <span class="kind ${opts.last ? 'last' : ''}">${opts.last ? icon('target', { size: 16 }) : ''}</span>
-      <div class="tiles">${'<div class="tile"></div>'.repeat(len)}</div>
-      <span></span>
-      <span class="by">${opts.last ? 'son satır · yalnızca tahmin' : ''}</span>
-    </div>`;
-  }
-  const tiles =
-    row.type === 'empty'
-      ? '<div class="tile empty-row"></div>'.repeat(len)
-      : [...row.word].map((c, k) => `<div class="tile c-${row.colors[k]}" style="animation-delay:${k * 70}ms">${esc(c)}</div>`).join('');
-  const by =
-    row.type === 'signal'
-      ? `Sinyal · ${esc(playerName(row.byPlayerId))}`
-      : row.type === 'guess'
-        ? `Tahmin · ${esc(playerName(row.byPlayerId))}${row.result === 'trap' ? ' · TUZAK' : row.result === 'correct' ? ' · doğru' : ''}`
-        : 'Boş satır · süre doldu';
-  return `<div class="brow ${opts.animate ? 'flip' : ''} ${row.result ? `res-${row.result}` : ''}">
-    <span class="kind" title="${row.type === 'signal' ? 'Sinyal' : row.type === 'guess' ? 'Tahmin' : 'Boş satır'}">${icon(ROW_ICON[row.type], { size: 16 })}</span>
-    <div class="tiles">${tiles}</div>
-    <span></span>
-    <span class="by">${by}</span>
-  </div>`;
-}
-
+/** Tahta, kaptanın mesaj akışı olarak çizilir: her sinyal bir balon, tahminler altında yanıt. */
 function renderBoard() {
-  const w = S.state.word;
+  const st = S.state;
+  const w = st.word;
   const el = document.getElementById('g-board');
   if (!w) {
     el.innerHTML = '';
     return;
   }
-  el.style.setProperty('--len', w.length);
-  const rows = [];
-  for (let i = 0; i < w.rowLimit; i++) {
-    rows.push(rowHtml(w.board[i], w.length, { animate: i >= S.renderedRows && i < w.board.length, last: i === w.rowLimit - 1 }));
+  const capName = playerName(w.captainId);
+  const captain = playerById(w.captainId);
+  const groups = [];
+  let signalNo = 0;
+  w.board.forEach((row, i) => {
+    const animate = i >= S.renderedRows;
+    if (row.type === 'guess' && groups.length) groups[groups.length - 1].replies.push({ row, animate });
+    else groups.push({ row, animate, no: row.type === 'signal' ? ++signalNo : null, replies: row.type === 'guess' ? [{ row, animate }] : [] });
+  });
+  const discs = (row) => [...row.word].map((c, k) => `<div class="tile c-${row.colors[k]}" style="animation-delay:${k * 60}ms">${esc(c)}</div>`).join('');
+  const reply = ({ row, animate }) => {
+    const res = row.result === 'trap' ? 'TUZAK' : row.result === 'correct' ? 'Doğru!' : '';
+    return `<div class="reply ${animate ? 'flip' : ''} ${row.result ? `res-${row.result}` : ''}">
+      <span class="who">${icon('target', { size: 14 })} ${esc(playerName(row.byPlayerId))}</span>
+      <div class="discs">${discs(row)}</div>
+      ${res ? `<span class="res">${res}</span>` : ''}
+    </div>`;
+  };
+  const html = groups.map((g) => {
+    const replies = g.replies.length ? `<div class="replies">${g.replies.map(reply).join('')}</div>` : '';
+    if (g.row.type === 'signal') {
+      return `<article class="msg signal ${g.animate ? 'flip' : ''}">
+        <div class="msg-head">${avatar(captain, { small: true })}<b>${esc(capName)}</b><span>${g.no}. sinyal</span></div>
+        <div class="bubble"><div class="discs" style="--len:${w.length}">${discs(g.row)}</div></div>
+        ${replies}
+      </article>`;
+    }
+    if (g.row.type === 'empty') {
+      return `<article class="msg empty"><div class="bubble">${icon('clock', { size: 16 })} Süre doldu, sinyal gelmedi (boş satır)</div>${replies}</article>`;
+    }
+    return `<article class="msg">${replies}</article>`;
+  });
+
+  let wait = '';
+  if (st.phase === 'SIGNAL' || st.phase === 'WORD_SETUP') {
+    const who = isCaptain() ? 'Sinyalini bekliyoruz' : `${esc(capName)} sinyal seçiyor`;
+    wait = `<div class="feed-wait">${avatar(captain, { small: true })}<span>${st.phase === 'WORD_SETUP' ? 'İlk sinyal birazdan…' : who}</span><span class="typing-dots"><i></i><i></i><i></i></span></div>`;
+  } else if (!w.board.length) {
+    wait = '<div class="feed-wait">Henüz sinyal yok.</div>';
   }
-  el.innerHTML = rows.join('');
+  if (w.rowsRemaining === 1 && WORD_PHASES.has(st.phase)) {
+    wait += `<div class="notice danger">${icon('target', { size: 16 })}<div>Son satır: sadece tahmin yapılabilir, pas yok.</div></div>`;
+  }
+  el.innerHTML = html.join('') + wait;
   S.renderedRows = w.board.length;
 }
 
@@ -1202,11 +1332,33 @@ function canSubmitNow() {
   return isCaptain() ? st.phase === 'SIGNAL' : st.phase === 'DISCUSSION';
 }
 
+/** Klavye kapalıyken tek bir düğme; açıkken "gizle" bağlantısı. */
+function renderCompose() {
+  const el = document.getElementById('g-compose');
+  const st = S.state;
+  if (!canType()) {
+    el.innerHTML = '';
+    return;
+  }
+  const cap = isCaptain();
+  if (S.composer) {
+    el.innerHTML = `<div class="composer-head"><button class="text-btn" data-action="compose">${icon('down', { size: 16 })} Klavyeyi gizle</button></div>`;
+    return;
+  }
+  const draft = S.typed ? ` <span class="muted">(${esc(S.typed)})</span>` : '';
+  let btn;
+  if (cap && st.phase === 'SIGNAL') btn = `<button class="btn primary" data-action="compose">${icon('send', { size: 16 })} Sinyal yaz${draft}</button>`;
+  else if (cap) btn = `<button class="btn ghost" data-action="compose">${icon('send', { size: 16 })} Sıradaki sinyali hazırla${draft}</button>`;
+  else if (st.phase === 'DISCUSSION') btn = `<button class="btn primary" data-action="compose">${icon('target', { size: 16 })} Tahmin öner${draft}</button>`;
+  else btn = `<button class="btn ghost" data-action="compose">${icon('target', { size: 16 })} Taslak yaz${draft}</button>`;
+  el.innerHTML = `<div class="composer-bar">${btn}</div>`;
+}
+
 function renderTyped() {
   const el = document.getElementById('g-typed');
   if (!el) return;
   const st = S.state;
-  if (!canType()) {
+  if (!canType() || !S.composer) {
     el.innerHTML = '';
     return;
   }
@@ -1233,7 +1385,7 @@ function renderTyped() {
     msg = st.phase === 'DISCUSSION' ? 'Kelimeyi yaz, ÖNER ile tahmin önerisi yap' : 'Taslak yazabilirsin; öneriler tartışmada açılır';
   }
   el.innerHTML = `
-    <div class="tiles" style="--len:${len}">${tiles}</div>
+    <div class="discs" style="--len:${len}">${tiles}</div>
     <div class="msg ${cls}">${esc(msg)}</div>`;
   // GÖNDER/ÖNER tuşu, gönderilebilir durumdayken vurgulanır.
   const enter = document.querySelector('.key[data-key="ENTER"]');
@@ -1255,7 +1407,7 @@ function keyColors() {
 
 function renderKeyboard() {
   const el = document.getElementById('g-keyboard');
-  if (!canType()) {
+  if (!canType() || !S.composer) {
     el.innerHTML = '';
     return;
   }
@@ -1273,34 +1425,6 @@ function renderKeyboard() {
         })
         .join('')}</div>`,
   ).join('');
-}
-
-function renderPeople() {
-  const st = S.state;
-  const w = st.word;
-  const el = document.getElementById('g-people');
-  if (S.editOrder && isHost()) {
-    el.innerHTML = `<section class="card">
-      <div class="spread" style="margin-bottom:4px"><div class="label">Kaptan sırası ve oyuncular</div>
-      <button class="btn sm ghost" data-action="edit-order">Tamam</button></div>
-      <ol class="plist">${st.players.map((p, i) => playerRow(p, i, st.players.length, true)).join('')}</ol>
-    </section>`;
-    return;
-  }
-  const next = w ? nextCaptainId() : null;
-  el.innerHTML = `<div class="people">${st.players
-    .map((p) => {
-      const captain = w && p.id === w.captainId;
-      const marks = [];
-      if (captain) marks.push(`<span class="cap" title="Kaptan">${icon('micOff', { size: 14 })}</span>`);
-      else if (p.id === next) marks.push(`<span title="Sıradaki kaptan">${icon('skip', { size: 14 })}</span>`);
-      if (p.id === st.hostId) marks.push(`<span class="host" title="Oda sahibi">${icon('crown', { size: 14 })}</span>`);
-      if (!p.connected) marks.push(`<span title="Bağlantı yok">${icon('wifiOff', { size: 14 })}</span>`);
-      return `<span class="person ${captain ? 'captain' : ''}">${avatar(p)}<span class="pn">${esc(p.name)}${
-        p.id === S.me.playerId ? ' <span class="you">(sen)</span>' : ''
-      }</span><span class="marks">${marks.join('')}</span></span>`;
-    })
-    .join('')}</div>`;
 }
 
 function renderTools() {
@@ -1579,11 +1703,19 @@ document.addEventListener('click', (e) => {
     case 'key':
       pressKey(btn.dataset.key);
       break;
+    case 'compose':
+      S.composer = !S.composer;
+      render();
+      break;
     case 'approve':
       send({ type: 'approve', proposalId: id });
       break;
     case 'fill':
-      if (isCaptain() && canType()) setTyped(btn.dataset.word);
+      if (isCaptain() && canType()) {
+        S.composer = true;
+        setTyped(btn.dataset.word);
+        render();
+      }
       break;
     case 'kick':
       if (confirm(`${playerName(id)} odadan çıkarılsın mı?`)) send({ type: 'kick', playerId: id });
@@ -1607,7 +1739,10 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (S.screen !== 'game' || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.target instanceof HTMLInputElement) return;
-  if (e.key === 'Backspace') {
+  if (e.key === 'Escape' && S.composer) {
+    S.composer = false;
+    render();
+  } else if (e.key === 'Backspace') {
     e.preventDefault();
     pressKey('BACK');
   } else if (e.key === 'Enter') {
@@ -1618,6 +1753,10 @@ document.addEventListener('keydown', (e) => {
     const k = norm(e.key);
     if (ALPHABET.has(k)) {
       e.preventDefault();
+      if (canType() && !S.composer) {
+        S.composer = true; // fiziksel klavyeyle yazmaya başlayınca alan açılır
+        render();
+      }
       pressKey(k);
     }
   }
