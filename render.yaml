@@ -1,0 +1,18 @@
+# Render Blueprint: Dashboard → New → Blueprint → bu repoyu seç.
+# Elle kurulum için: New → Web Service, Build: `npm ci`, Start: `npm start`.
+services:
+  - type: web
+    name: sinyal
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Takım rekorlarının yeniden başlatmalarda silinmemesi için bir PostgreSQL
+      # bağlantı adresi verebilirsin (Render Postgres, Neon, Supabase…).
+      - key: DATABASE_URL
+        sync: false

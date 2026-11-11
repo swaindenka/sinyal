@@ -1,0 +1,16 @@
+# Küfür listesinde olup oyunda kalması gereken masum kelimeler (her satıra bir kelime)
+ana
+cim
+düdük
+kaşar
+mal
+oğlan
+öküz
+yalama
+kayyum
+revizyonist
+dönek
+kaypak
+malak
+feriştah
+yılışık

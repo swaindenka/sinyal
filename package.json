@@ -1,0 +1,23 @@
+{
+  "name": "sinyal",
+  "version": "1.0.0",
+  "description": "SİNYAL — takımca, sesli iletişimle oynanan gerçek zamanlı Türkçe kelime oyunu",
+  "type": "module",
+  "main": "server/index.js",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "SINYAL_DEV=1 node --watch server/index.js",
+    "test": "node --test test/*.test.js",
+    "build:data": "python3 scripts/build_data.py"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "pg": "^8.13.1"
+  }
+}

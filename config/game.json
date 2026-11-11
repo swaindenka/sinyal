@@ -1,0 +1,38 @@
+{
+  "minPlayers": 3,
+  "devMinPlayers": 2,
+  "maxPlayers": 8,
+  "startLives": 3,
+  "maxLives": 3,
+  "lifeEverySolved": 5,
+  "bankMax": 10,
+  "setupSeconds": 5,
+  "signalSeconds": 45,
+  "discussionSeconds": 90,
+  "maxGuessesPerDiscussion": 2,
+  "moleVoteSeconds": 30,
+  "revealSeconds": 30,
+  "captainReconnectSeconds": 30,
+  "playerReconnectSeconds": 60,
+  "hostGraceSeconds": 10,
+  "emptyRoomSeconds": 900,
+  "proposalRateLimitMs": 2000,
+  "starMaxSignals": 1,
+  "commonWordLimit": 10000,
+  "requireApprovedPuzzles": false,
+  "chaos": {
+    "startWord": 4,
+    "every": 3,
+    "cards": ["category", "blind", "fast", "mole"],
+    "fastSignalSeconds": 30,
+    "fastDiscussionSeconds": 45,
+    "moleMinGuessers": 3,
+    "categoryMinSignals": 5
+  },
+  "tiers": [
+    { "fromWord": 1,  "lengths": [5],    "trapRange": [1, 1], "rows": 6, "consonantOnly": true,  "maxRank": 4000 },
+    { "fromWord": 4,  "lengths": [5, 6], "trapRange": [1, 1], "rows": 5, "consonantOnly": true,  "maxRank": 6000 },
+    { "fromWord": 7,  "lengths": [6],    "trapRange": [2, 2], "rows": 5, "consonantOnly": false, "maxRank": 8000 },
+    { "fromWord": 10, "lengths": [6, 7], "trapRange": [2, 3], "rows": 4, "consonantOnly": false, "maxRank": 10000 }
+  ]
+}
