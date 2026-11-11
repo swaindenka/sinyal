@@ -1,4 +1,5 @@
 // SİNYAL istemcisi. Sunucu otoriterdir; burası sadece durumu çizer ve eylemleri gönderir.
+import { icon } from './icons.js';
 
 const app = document.getElementById('app');
 const KEY_ROWS = [
@@ -8,20 +9,28 @@ const KEY_ROWS = [
 ];
 const ALPHABET = new Set([...'ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ']);
 const WORD_PHASES = new Set(['WORD_SETUP', 'SIGNAL', 'DISCUSSION']);
+const STEP_OF = { WORD_SETUP: 0, SIGNAL: 1, DISCUSSION: 2, MOLE_VOTE: 3, REVEAL: 3 };
 
 const PHASE_LABEL = {
   WORD_SETUP: 'Hazırlık',
-  SIGNAL: 'Sinyal aşaması',
-  DISCUSSION: 'Tartışma aşaması',
+  SIGNAL: 'Sinyal',
+  DISCUSSION: 'Tartışma',
   MOLE_VOTE: 'Köstebek oylaması',
-  REVEAL: 'Hesaplaşma',
+  REVEAL: 'Sonuç',
 };
 
 const CHAOS = {
-  category: { name: 'Kategori kilidi', icon: '🏷️', desc: (w) => `Sinyaller yalnızca “${w.category}” kategorisinden olabilir.` },
-  blind: { name: 'Kör renk', icon: '🙈', desc: () => 'Bu kelimede sarılar gri gösterilir.' },
-  fast: { name: 'Hızlı tur', icon: '⚡', desc: () => 'Sinyal ve tartışma süreleri kısaldı.' },
-  mole: { name: 'Köstebek', icon: '🕵️', desc: () => 'Tahmincilerden biri gizlice köstebek! Kelime bitince oylama var.' },
+  category: { name: 'Kategori kilidi', icon: 'tag', desc: (w) => `Sinyaller yalnızca “${w.category}” kategorisinden olabilir.` },
+  blind: { name: 'Kör renk', icon: 'eyeOff', desc: () => 'Bu kelimede sarılar gri gösterilir.' },
+  fast: { name: 'Hızlı tur', icon: 'zap', desc: () => 'Sinyal ve tartışma süreleri kısaldı.' },
+  mole: { name: 'Köstebek', icon: 'ghost', desc: () => 'Tahmincilerden biri gizlice köstebek. Kelime bitince oylama var.' },
+};
+
+const RESULT = {
+  solved: { label: 'Çözüldü', cls: 'ok' },
+  trap: { label: 'Tuzak', cls: 'danger' },
+  rows: { label: 'Satır bitti', cls: 'danger' },
+  cancelled: { label: 'İptal', cls: '' },
 };
 
 const ERRORS = {
@@ -150,8 +159,14 @@ function isHost() {
 function isCaptain() {
   return Boolean(S.state?.word && S.me && S.state.word.captainId === S.me.playerId);
 }
+function isMole() {
+  return Boolean(S.moleInfo && !isCaptain());
+}
 function playerName(id) {
   return S.state?.players.find((p) => p.id === id)?.name ?? S.names[id] ?? '—';
+}
+function playerById(id) {
+  return S.state?.players.find((p) => p.id === id) ?? { id, name: S.names[id] ?? '?', connected: false };
 }
 function serverNow() {
   return Date.now() + S.offset;
@@ -413,10 +428,10 @@ function handleEvent(ev, st) {
     case 'word_start':
       SOUND.start();
       if (ev.captainId === S.me?.playerId) {
-        toast('Kaptan sensin! Konuşmak yok 🤐', 'good');
+        toast('Kaptan sensin — konuşmak yok', 'good');
         navigator.vibrate?.([120, 60, 120]);
       } else toast(`${ev.wordIndex}. kelime · Kaptan: ${playerName(ev.captainId)}`);
-      if (ev.chaosCard) toast(`${CHAOS[ev.chaosCard].icon} Kaos kartı: ${CHAOS[ev.chaosCard].name}`);
+      if (ev.chaosCard) toast(`Kaos kartı: ${CHAOS[ev.chaosCard].name}`);
       break;
     case 'signal':
       SOUND.signal();
@@ -439,7 +454,7 @@ function handleEvent(ev, st) {
       break;
     case 'bank_row':
       SOUND.coin();
-      toast('Kumbaradan 1 satır alındı 🪙', 'good');
+      toast('Kumbaradan 1 satır alındı', 'good');
       break;
     case 'word_end':
       if (ev.result === 'solved') SOUND.solved();
@@ -448,14 +463,14 @@ function handleEvent(ev, st) {
       else if (ev.result === 'cancelled') toast('Kaptan dönmedi; kelime iptal edildi (can kaybı yok)');
       break;
     case 'mole_result':
-      toast(ev.caught ? 'Köstebek yakalandı! +1 can' : 'Köstebek kaçtı…', ev.caught ? 'good' : 'err');
+      toast(ev.caught ? 'Köstebek yakalandı! +1 can' : 'Köstebek kaçtı', ev.caught ? 'good' : 'err');
       break;
     case 'run_end':
       if (ev.newRecord) SOUND.record();
       else SOUND.end();
       break;
     case 'host':
-      if (mine) toast('Artık oda sahibi sensin 👑', 'good');
+      if (mine) toast('Artık oda sahibi sensin', 'good');
       break;
     case 'join':
       if (!mine && st.phase !== 'LOBBY') toast(`${playerName(ev.playerId)} katıldı`);
@@ -474,17 +489,17 @@ function handleEvent(ev, st) {
       if (!mine) toast(`${ev.name} odadan çıkarıldı`);
       break;
     case 'paused':
-      toast('Oyun duraklatıldı ⏸');
+      toast('Oyun duraklatıldı');
       break;
     case 'resumed':
-      toast('Oyun devam ediyor ▶');
+      toast('Oyun devam ediyor');
       break;
     default:
       break;
   }
 }
 
-// ───────────────────────── çizim ─────────────────────────
+// ───────────────────────── çizim altyapısı ─────────────────────────
 
 function currentScreen() {
   if (S.replaced) return 'replaced';
@@ -527,6 +542,10 @@ function render() {
   updateTitle();
 }
 
+function renderConn() {
+  document.getElementById('conn').hidden = !(S.me && !S.connected && !S.replaced);
+}
+
 function updateTitle() {
   const st = S.state;
   let title = 'SİNYAL';
@@ -544,90 +563,142 @@ function updateTitle() {
           ? '🤐 Kaptan sensin!'
           : st.phase === 'DISCUSSION' && !cap
             ? '💬 Tartışma'
-            : st.phase === 'MOLE_VOTE'
-              ? '🕵️ Köstebek oylaması'
-              : PHASE_LABEL[st.phase] ?? '';
+            : PHASE_LABEL[st.phase] ?? '';
     title = `${secs}${label} · SİNYAL`;
   }
   if (document.title !== title) document.title = title;
 }
 
-function renderConn() {
-  document.getElementById('conn').hidden = !(S.me && !S.connected && !S.replaced);
+// ───────────────────────── ortak parçalar ─────────────────────────
+
+const LOGO_TILES = [
+  ['S', 'G'],
+  ['İ', 'X'],
+  ['N', 'Y'],
+  ['Y', 'G'],
+  ['A', 'X'],
+  ['L', 'G'],
+];
+
+function logo(small = false) {
+  return `<span class="logo ${small ? 'sm' : ''}" role="img" aria-label="SİNYAL">${LOGO_TILES.map(([c, k]) => `<span class="t-${k}">${c}</span>`).join('')}</span>`;
+}
+
+function hueOf(name) {
+  let h = 7;
+  for (const ch of String(name)) h = (h * 31 + ch.codePointAt(0)) % 360;
+  return h;
+}
+
+function avatar(p, { small = false, status = false } = {}) {
+  const initial = [...String(p.name || '?')][0].toLocaleUpperCase('tr-TR');
+  return `<span class="avatar ${small ? 'sm' : ''} ${p.connected === false ? 'off' : ''}" style="--hue:${hueOf(p.name)}" title="${esc(p.name)}">${esc(initial)}${
+    status ? '<i class="status"></i>' : ''
+  }</span>`;
+}
+
+function miniTiles(word, cls) {
+  return `<span class="mini ${cls}">${[...word].map((c) => `<span>${esc(c)}</span>`).join('')}</span>`;
+}
+
+function forbiddenChips(letters) {
+  return `<span class="forbidden">${letters.map((c) => `<span class="forbidden-chip">${esc(c)}</span>`).join('')}</span>`;
 }
 
 const RULES = `
-<details class="rules">
-  <summary>Nasıl oynanır?</summary>
+<details class="card rules">
+  <summary>${icon('help')} Nasıl oynanır?</summary>
   <ul>
     <li>3–8 kişilik <b>tek takım</b> olarak, Discord gibi sesli bir kanalda oynayın.</li>
     <li>Her kelimede biri <b>kaptan</b> olur: gizli kelimeyi görür ama <b>konuşamaz</b>, sadece <b>sinyal kelimesi</b> gönderir.</li>
-    <li>Sinyalin <b>anlamı</b> gizli kelimeyi çağrıştırır; <b>harfleri</b> Wordle renkleriyle gösterilir: 🟩 doğru yer, 🟨 kelimede var, ⬜ yok.</li>
-    <li><b>Tuzaklar</b> gizli kelimeden tek harf farklı kelimelerdir; tuzağı tahmin etmek can götürür. Kaptan, aradaki farkı veren <b>yasak harfleri</b> kullanamaz — bu ayrımı ancak anlamla verebilir.</li>
+    <li>Sinyalin <b>anlamı</b> gizli kelimeyi çağrıştırır; <b>harfleri</b> renklerle gösterilir: yeşil doğru yer, sarı kelimede var, gri yok.</li>
+    <li><b>Tuzaklar</b> gizli kelimeden tek harf farklı kelimelerdir; tuzağı tahmin etmek can götürür. Kaptan, farkı veren <b>yasak harfleri</b> kullanamaz — bu ayrımı ancak anlamla verebilir.</li>
     <li>Tahminciler tartışır, tahmin önerir ve onaylar. Çoğunluk onaylayınca tahmin gönderilir. Bir tartışmada en fazla 2 tahmin.</li>
-    <li>Her satır (sinyal, tahmin ya da boş satır) satır hakkından düşer. Son satır sadece tahmin içindir.</li>
+    <li>Her sinyal, tahmin ya da boş satır bir satır harcar. Son satır sadece tahmin içindir.</li>
     <li>Çözülen kelimede artan satırlar <b>kumbaraya</b> gider; gerekince oybirliğiyle kumbaradan satır çekin.</li>
-    <li>En fazla 1 sinyalle çözülen kelime ⭐ kazandırır. Her 5 çözümde +1 can. Canlar bitene kadar devam!</li>
+    <li>En fazla 1 sinyalle çözülen kelime yıldız kazandırır. Her 5 çözümde +1 can. Canlar bitene kadar devam!</li>
     <li>4. kelimeden itibaren her 3 kelimede bir <b>kaos kartı</b>: kategori kilidi, kör renk, hızlı tur, köstebek.</li>
   </ul>
 </details>`;
 
-const LOGO = `<h1 class="logo"><span class="s1">SİN</span><span class="s2">Y</span><span class="s3">AL</span></h1>`;
+// ───────────────────────── ekranlar ─────────────────────────
 
 const LAYOUT = {
   home: () => `
     <main class="home">
-      ${LOGO}
-      <p class="tagline">Takımca, sesli oynanan Türkçe kelime oyunu. Kaptan konuşamaz — sadece sinyal gönderir.</p>
-      <label><div class="label">Adın</div><input type="text" id="name" maxlength="16" autocomplete="nickname" placeholder="ör. Deniz" /></label>
-      ${
-        urlCode
-          ? `<button class="primary" data-action="join">${esc(urlCode)} odasına katıl</button>
-             <div class="or">ya da</div>
-             <button data-action="create">Yeni oda kur</button>`
-          : `<button class="primary" data-action="create">Oda kur</button>
-             <div class="or">ya da bir odaya katıl</div>
-             <div class="join-row"><input type="text" id="code" maxlength="4" placeholder="KOD" autocomplete="off" /><button data-action="join">Katıl</button></div>`
-      }
+      <div class="hero">
+        ${logo()}
+        <p>Takımca oynanan Türkçe kelime oyunu. Kaptan konuşamaz, sadece sinyal gönderir.</p>
+      </div>
+      <section class="card stack">
+        <label class="field"><span class="label">Adın</span><input class="input" type="text" id="name" maxlength="16" autocomplete="nickname" placeholder="ör. Deniz" /></label>
+        ${
+          urlCode
+            ? `<button class="btn primary block" data-action="join">${esc(urlCode)} odasına katıl</button>
+               <div class="divider">ya da</div>
+               <button class="btn ghost block" data-action="create">Yeni oda kur</button>`
+            : `<button class="btn primary block" data-action="create">Oda kur</button>
+               <div class="divider">ya da koda katıl</div>
+               <div class="join-row"><input class="input code" type="text" id="code" maxlength="4" placeholder="KOD" autocomplete="off" aria-label="Oda kodu" /><button class="btn" data-action="join">Katıl</button></div>`
+        }
+      </section>
+      <section class="intro">
+        <div class="intro-step"><span class="num">${icon('micOff')}</span><div><b>Kaptan konuşamaz</b><span>Gizli kelimeyi bilen kaptan sadece sinyal kelimeleri gönderir.</span></div></div>
+        <div class="intro-step"><span class="num">${icon('palette')}</span><div><b>Anlam + renkler</b><span>Sinyalin anlamı çağrıştırır, harfleri yeşil/sarı/gri renklerle ipucu verir.</span></div></div>
+        <div class="intro-step"><span class="num">${icon('alert')}</span><div><b>Tuzaklara dikkat</b><span>Tek harf farklı tuzak kelimeyi tahmin etmek can götürür.</span></div></div>
+      </section>
       ${RULES}
     </main>`,
-  connecting: () => `<div class="center-screen"><div>${LOGO}<p class="muted">Bağlanıyor…</p><button class="link" data-action="leave">Vazgeç</button></div></div>`,
-  replaced: () => `<div class="center-screen"><div>${LOGO}<p>Bu oyun başka bir sekmede açıldı.</p><button class="primary" data-action="take-over">Burada devam et</button></div></div>`,
+  connecting: () => `
+    <div class="center-screen"><div class="stack">${logo()}<div class="spinner" aria-hidden="true"></div><div class="muted">Odaya bağlanılıyor…</div>
+    <button class="text-btn" data-action="leave">Vazgeç</button></div></div>`,
+  replaced: () => `
+    <div class="center-screen"><div class="stack">${logo()}<div class="h2">Bu oyun başka bir sekmede açık</div>
+    <div class="muted">Aynı oyuncu olarak tek bir sekmede oynayabilirsin.</div>
+    <button class="btn primary" data-action="take-over">Burada devam et</button></div></div>`,
   lobby: () => `
     <main class="lobby">
-      ${LOGO}
-      <section class="card row-between">
-        <div><div class="label">Oda kodu</div><div class="room-code" id="l-code"></div></div>
-        <button data-action="copy-link">🔗 Davet linki</button>
+      <header class="topbar">
+        <div class="brand">${logo(true)}<span class="name">Lobi</span></div>
+        <button class="text-btn" data-action="leave">${icon('logout', { size: 16 })} Odadan çık</button>
+      </header>
+      <section class="card stack">
+        <div class="spread">
+          <div><div class="label">Oda kodu</div><div class="room-code" id="l-code"></div></div>
+          <button class="btn sm" data-action="copy-link">${icon('link', { size: 16 })} Davet linki</button>
+        </div>
+        <div class="muted small">Linki arkadaşlarına gönder. Sesli konuşma için Discord gibi bir kanal kullanın.</div>
       </section>
-      <section class="card">
+      <section class="card stack">
         <div class="label">Takım adı</div>
         <div id="l-team"></div>
-        <div id="l-record" class="muted small" style="margin-top:6px"></div>
+        <div id="l-record" class="muted small"></div>
       </section>
       <section class="card">
-        <div class="row-between"><div class="label">Oyuncular · kaptan sırası</div><span id="l-count" class="muted small"></span></div>
-        <ol class="player-list" id="l-players" data-memo></ol>
-        <div id="l-order" class="muted small" style="margin-top:8px" data-memo></div>
+        <div class="spread" style="margin-bottom:4px">
+          <div class="label">Oyuncular · kaptan sırası <span id="l-count"></span></div>
+          <div id="l-order-tools" data-memo></div>
+        </div>
+        <ol class="plist" id="l-players" data-memo></ol>
+        <div id="l-order" class="muted small" style="margin-top:6px" data-memo></div>
       </section>
-      <div class="actions" id="l-actions" data-memo></div>
+      <section class="cta" id="l-actions" data-memo></section>
       ${RULES}
-      <div style="text-align:center"><button class="link" data-action="leave">Odadan ayrıl</button></div>
     </main>`,
   game: () => `
     <main class="game">
       <header class="topbar" id="g-top" data-memo></header>
-      <section class="phasebar" id="g-phase" data-memo></section>
+      <section class="turn" id="g-turn" data-memo aria-live="polite"></section>
       <div class="col-main">
         <section class="board" id="g-board" data-memo></section>
         <div class="dock"><div class="typed" id="g-typed" data-memo></div><div class="keyboard" id="g-keyboard" data-memo></div></div>
       </div>
       <aside class="col-side">
-        <div class="meta" id="g-meta" data-memo></div>
+        <div class="stack" id="g-info" data-memo></div>
         <div id="g-secret" data-memo></div>
         <section class="panel" id="g-panel" data-memo></section>
-        <div class="players" id="g-players" data-memo></div>
-        <div id="g-host" class="actions" data-memo></div>
+        <div id="g-people" data-memo></div>
+        <div class="toolbar" id="g-tools" data-memo></div>
         ${RULES}
       </aside>
     </main>`,
@@ -638,7 +709,7 @@ const MOUNT = {
   home() {
     const name = document.getElementById('name');
     name.value = local.get('sinyal.name', '');
-    (name.value ? document.getElementById('code') ?? name : name).focus();
+    (name.value ? (document.getElementById('code') ?? name) : name).focus();
     const submit = (e) => {
       if (e.key !== 'Enter') return;
       if (e.target.id === 'code' || urlCode) doJoin();
@@ -663,7 +734,7 @@ function updateLobby() {
   if (S.teamMode !== mode) {
     S.teamMode = mode;
     if (mode === 'host') {
-      team.innerHTML = `<input type="text" id="team-input" maxlength="24" placeholder="ör. Kartallar" />`;
+      team.innerHTML = `<input class="input" type="text" id="team-input" maxlength="24" placeholder="ör. Kartallar" />`;
       const input = document.getElementById('team-input');
       input.value = st.teamName;
       let t;
@@ -674,85 +745,101 @@ function updateLobby() {
       });
       input.addEventListener('change', push);
       input.addEventListener('keydown', (e) => e.key === 'Enter' && input.blur());
-    } else team.innerHTML = `<div style="font-size:20px;font-weight:800" id="team-view"></div>`;
+    } else team.innerHTML = `<div class="h2" id="team-view"></div>`;
   }
   if (mode === 'host') {
     const input = document.getElementById('team-input');
     if (document.activeElement !== input && input.value !== st.teamName) input.value = st.teamName;
   } else {
-    document.getElementById('team-view').textContent = st.teamName || 'Oda sahibi takım adını belirleyecek…';
+    const view = document.getElementById('team-view');
+    view.textContent = st.teamName || 'Oda sahibi belirleyecek';
+    view.classList.toggle('muted', !st.teamName);
   }
   document.getElementById('l-record').textContent = st.record
-    ? `Takım rekoru: ${st.record.bestScore} kelime · ⭐ ${st.record.bestStars} (${st.record.runs} oyun)`
+    ? `Takım rekoru: ${st.record.bestScore} kelime · ${st.record.bestStars} yıldız · ${st.record.runs} oyun`
     : st.teamName
       ? 'Bu takımın henüz rekoru yok.'
       : '';
 
   const players = st.players;
-  document.getElementById('l-count').textContent = `${players.length}/${st.maxPlayers}`;
-  document.getElementById('l-players').innerHTML = players
-    .map(
-      (p, i) => `
-      <li>
-        <span class="num">${i + 1}.</span>
-        <span class="dot ${p.connected ? '' : 'off'}" title="${p.connected ? 'bağlı' : 'bağlantı yok'}"></span>
-        <span class="pname">${esc(p.name)}</span>
-        ${p.id === S.me.playerId ? '<span class="badge">sen</span>' : ''}
-        ${p.id === st.hostId ? '<span class="badge host">👑 oda sahibi</span>' : ''}
-        ${p.ready ? '<span class="badge ready">✓ hazır</span>' : ''}
-        ${
-          isHost()
-            ? `<button class="icon small" data-action="move" data-id="${p.id}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="yukarı">↑</button>
-               <button class="icon small" data-action="move" data-id="${p.id}" data-dir="1" ${i === players.length - 1 ? 'disabled' : ''} aria-label="aşağı">↓</button>
-               ${p.id !== S.me.playerId ? `<button class="icon small danger" data-action="kick" data-id="${p.id}" title="Odadan çıkar" aria-label="çıkar">✕</button>` : ''}`
-            : ''
-        }
-      </li>`,
-    )
-    .join('');
-  document.getElementById('l-order').innerHTML = isHost()
-    ? `Sırayı oklarla düzenleyebilir ya da <button class="link small" data-action="shuffle">karıştırabilirsin</button>. Elle düzenlenmezse oyun başında rastgele belirlenir.`
-    : 'Kaptan sırası oyun başında rastgele belirlenir (oda sahibi düzenleyebilir).';
+  document.getElementById('l-count').textContent = `(${players.length}/${st.maxPlayers})`;
+  document.getElementById('l-order-tools').innerHTML = isHost()
+    ? `<button class="btn sm ghost" data-action="shuffle">${icon('shuffle', { size: 16 })} Karıştır</button>`
+    : '';
+  document.getElementById('l-players').innerHTML = players.map((p, i) => playerRow(p, i, players.length, isHost())).join('');
+  document.getElementById('l-order').textContent = isHost()
+    ? 'Sırayı oklarla düzenle. Elle düzenlenmezse oyun başında rastgele belirlenir.'
+    : 'Kaptan sırası oyun başında rastgele belirlenir.';
 
   const connected = players.filter((p) => p.connected).length;
   let hint = '';
   if (!st.teamName) hint = 'Başlamak için takım adı gerekli.';
-  else if (connected < st.minPlayers) hint = `Başlamak için en az ${st.minPlayers} bağlı oyuncu gerekli.`;
+  else if (connected < st.minPlayers) hint = `Başlamak için en az ${st.minPlayers} bağlı oyuncu gerekli (şu an ${connected}).`;
   const ready = me()?.ready;
+  const readyCount = players.filter((p) => p.ready).length;
   document.getElementById('l-actions').innerHTML = `
-    <button class="${ready ? 'success' : ''}" data-action="ready">${ready ? '✓ Hazırım' : 'Hazırım'}</button>
-    ${isHost() ? `<button class="primary" data-action="start" ${hint ? 'disabled' : ''}>Oyunu başlat</button>` : ''}
-    <div class="hint">${
-      isHost() ? esc(hint) || 'Herkes hazırsa başlatabilirsin.' : 'Oyunu oda sahibi başlatacak.'
-    }${st.devMode ? ' · Geliştirme modu: 2 oyuncu yeterli.' : ''}</div>`;
+    <div class="buttons ${isHost() ? '' : 'single'}">
+      <button class="btn ${ready ? 'on' : ''}" data-action="ready">${ready ? `${icon('check', { size: 16 })} Hazırım` : 'Hazırım'}</button>
+      ${isHost() ? `<button class="btn primary" data-action="start" ${hint ? 'disabled' : ''}>${icon('play', { size: 16 })} Oyunu başlat</button>` : ''}
+    </div>
+    <div class="hint">${esc(
+      isHost() ? hint || `${readyCount}/${players.length} oyuncu hazır. Herkes hazırsa başlatabilirsin.` : `${readyCount}/${players.length} oyuncu hazır. Oyunu oda sahibi başlatacak.`,
+    )}${st.devMode ? ' · Geliştirme modu: 2 oyuncu yeterli.' : ''}</div>`;
+}
+
+/** Lobide ve oyundaki "sıra ve oyuncular" düzenleyicisinde kullanılan oyuncu satırı. */
+function playerRow(p, i, total, editable) {
+  const st = S.state;
+  const self = p.id === S.me.playerId;
+  return `<li>
+    <span class="order">${i + 1}</span>
+    ${avatar(p, { status: true })}
+    <span class="pname"><b>${esc(p.name)}</b>
+      ${self ? '<span class="tag">sen</span>' : ''}
+      ${p.id === st.hostId ? `<span class="tag host">${icon('crown', { size: 12 })} oda sahibi</span>` : ''}
+      ${st.phase === 'LOBBY' && p.ready ? `<span class="tag ok">${icon('check', { size: 12 })} hazır</span>` : ''}
+      ${p.connected ? '' : '<span class="tag danger">bağlantı yok</span>'}
+    </span>
+    ${
+      editable
+        ? `<span class="tools">
+            <button class="icon-btn sm" data-action="move" data-id="${p.id}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="Yukarı taşı">${icon('up', { size: 16 })}</button>
+            <button class="icon-btn sm" data-action="move" data-id="${p.id}" data-dir="1" ${i === total - 1 ? 'disabled' : ''} aria-label="Aşağı taşı">${icon('down', { size: 16 })}</button>
+            ${self ? '' : `<button class="icon-btn sm danger" data-action="kick" data-id="${p.id}" title="Odadan çıkar" aria-label="Odadan çıkar">${icon('x', { size: 16 })}</button>`}
+          </span>`
+        : ''
+    }
+  </li>`;
 }
 
 // ── oyun ──
 
 function updateGame() {
   renderTop();
-  renderPhase();
-  renderMeta();
+  renderTurn();
+  renderInfo();
   renderSecret();
   renderBoard();
   renderPanel();
   renderTyped();
   renderKeyboard();
-  renderPlayers();
-  renderHostBar();
+  renderPeople();
+  renderTools();
 }
 
 function renderTop() {
   const st = S.state;
   const run = st.run;
-  const hearts = Array.from({ length: run.maxLives }, (_, i) => `<span class="${i < run.lives ? '' : 'off'}">❤️</span>`).join('');
+  const hearts = Array.from({ length: run.maxLives }, (_, i) => icon('heart', { size: 16, fill: true, cls: i < run.lives ? '' : 'lost' })).join('');
   document.getElementById('g-top').innerHTML = `
-    <div class="team" title="Oda ${esc(st.code)}">${esc(st.teamName)} <span class="muted small">· ${esc(st.code)}</span></div>
-    <span class="stat hearts" title="Can">${hearts}</span>
-    <span class="stat" title="Kumbara">🪙 ${run.bank}</span>
-    <span class="stat" title="Çözülen kelime">✓ ${run.score}</span>
-    <span class="stat" title="Yıldız">⭐ ${run.stars}</span>
-    <button class="icon small" data-action="mute" title="Ses">${S.muted ? '🔇' : '🔊'}</button>`;
+    <div class="brand">${logo(true)}<div style="min-width:0"><div class="name">${esc(st.teamName)}</div><div class="code">ODA ${esc(st.code)}</div></div></div>
+    <div class="stats">
+      <span class="pill hearts" title="Can: ${run.lives}/${run.maxLives}" aria-label="Can ${run.lives}">${hearts}</span>
+      <span class="pill gold" title="Kumbara (yedek satır)">${icon('coins', { size: 16 })}${run.bank}</span>
+      <span class="pill" title="Çözülen kelime">${icon('check', { size: 16 })}${run.score}</span>
+      <span class="pill gold" title="Yıldız">${icon('star', { size: 16, fill: true })}${run.stars}</span>
+    </div>
+    <button class="icon-btn" data-action="mute" title="${S.muted ? 'Sesi aç' : 'Sesi kapat'}" aria-label="Ses">${icon(S.muted ? 'mute' : 'volume')}</button>`;
 }
 
 function remainingMs() {
@@ -763,32 +850,97 @@ function remainingMs() {
   return null;
 }
 
-function renderPhase() {
+/** Bu oyuncu için "şimdi ne oluyor / ne yapmalıyım" metni. */
+function turnInfo() {
   const st = S.state;
-  const el = document.getElementById('g-phase');
-  if (!el) return;
+  const w = st.word;
+  const cap = isCaptain();
+  const capName = cap ? 'sen' : playerName(w.captainId);
+  const kicker = `${st.run.wordIndex}. kelime · Kaptan: ${capName}`;
+  switch (st.phase) {
+    case 'WORD_SETUP':
+      if (cap) return { kicker, icon: 'micOff', title: 'Kaptan sensin', sub: 'Gizli kelimeyi ve tuzakları incele. Bu kelime boyunca konuşma.', mine: true };
+      if (isMole()) return { kicker, icon: 'ghost', title: 'Köstebeksin', sub: 'Gizli kelimeyi biliyorsun. Takımı fark ettirmeden tuzağa çek.', mine: true };
+      return { kicker, icon: 'signal', title: 'Yeni kelime', sub: `${w.length} harf. ${capName} birazdan sinyal gönderecek; kaptan konuşamaz.` };
+    case 'SIGNAL':
+      if (cap) return { kicker, icon: 'send', title: 'Sinyal gönder', sub: `${w.length} harfli, yasak harf içermeyen bir kelime yaz.`, mine: true };
+      return { kicker, icon: 'signal', title: `${capName} sinyal seçiyor`, sub: 'Bu sırada aklınızdaki adayları konuşabilirsiniz.' };
+    case 'DISCUSSION': {
+      const last = w.rowsRemaining <= 1;
+      if (cap) return { kicker, icon: 'micOff', title: 'Takım tartışıyor', sub: 'Sessiz kal. Sıradaki sinyalini şimdiden yazabilirsin.' };
+      return {
+        kicker,
+        icon: 'messages',
+        title: 'Tartışın ve tahmin önerin',
+        sub: last
+          ? 'Son satır: pas yok, süre dolarsa kelime kaybedilir.'
+          : `Çoğunluk (${w.thresholds.guess}/${w.guesserCount}) onaylayınca tahmin gönderilir.`,
+        mine: true,
+        warn: last,
+      };
+    }
+    case 'MOLE_VOTE': {
+      const voted = (w.votedIds || []).includes(S.me.playerId);
+      return {
+        kicker,
+        icon: 'ghost',
+        title: 'Köstebek kim?',
+        sub: voted ? 'Oyun alındı. Diğerleri bekleniyor.' : 'Şüphelendiğin kişiye oy ver. Yakalanırsa takım +1 can kazanır.',
+        mine: !voted,
+      };
+    }
+    case 'REVEAL':
+      return { kicker, icon: 'mic', title: 'Hesaplaşma', sub: `Kaptan ${capName === 'sen' ? 'sensin, artık konuşabilirsin' : `${capName} artık konuşabilir`}: sinyalleri açıklama zamanı.` };
+    default:
+      return { kicker, icon: 'signal', title: '', sub: '' };
+  }
+}
+
+function renderTurn() {
+  const st = S.state;
+  const el = document.getElementById('g-turn');
+  if (!el || !st.word) return;
+  const info = turnInfo();
   const rem = remainingMs();
   const secs = rem == null ? '' : Math.ceil(rem / 1000);
+  const low = rem != null && rem < 10_000 && !st.paused;
   const pct = rem != null && st.phaseDuration ? Math.max(0, Math.min(100, (rem / st.phaseDuration) * 100)) : 0;
-  let note = '';
+  const step = STEP_OF[st.phase] ?? 0;
+  const steps = ['Hazırlık', 'Sinyal', 'Tartışma', st.phase === 'MOLE_VOTE' ? 'Oylama' : 'Sonuç'];
+
+  let pause = '';
   if (st.paused) {
     const parts = [];
     if (st.pauseReasons.includes('host')) parts.push('Oda sahibi oyunu duraklattı.');
     if (st.pauseReasons.includes('captain')) {
       const left = st.captainAwayUntil ? Math.max(0, Math.ceil((st.captainAwayUntil - serverNow()) / 1000)) : '';
-      parts.push(`Kaptanın bağlantısı koptu, bekleniyor (${left} sn). Dönmezse kelime iptal edilir.`);
+      parts.push(`Kaptanın bağlantısı koptu, ${left} sn bekleniyor. Dönmezse kelime iptal edilir.`);
     }
     if (st.pauseReasons.includes('players')) parts.push(`Oyuncu bekleniyor: en az ${st.minPlayers} bağlı oyuncu gerekli.`);
-    note = `<div class="pause-note">⏸ ${parts.join(' ')}</div>`;
+    pause = `<div class="notice pause-note">${icon('pause', { size: 16 })}<div>${esc(parts.join(' '))}</div></div>`;
   }
-  el.className = `phasebar ${st.paused ? 'paused' : ''}`;
+
+  el.className = `turn ${info.mine && !st.paused ? 'mine' : ''} ${st.paused ? 'paused' : ''}`;
+  el.dataset.phase = st.phase;
   el.innerHTML = `
-    <div class="row-between">
-      <div class="title">${st.run.wordIndex}. kelime · ${PHASE_LABEL[st.phase] ?? ''}</div>
-      <div class="count ${rem != null && rem < 10000 && !st.paused ? 'low' : ''}">${secs === '' ? '' : `${secs} sn`}</div>
+    <ol class="steps">${steps.map((s, i) => `<li class="${i < step ? 'done' : i === step ? 'current' : ''}">${s}</li>`).join('')}</ol>
+    <div class="turn-main">
+      <div class="turn-icon">${icon(info.icon, { size: 22 })}</div>
+      <div class="turn-text">
+        <div class="turn-kicker">${esc(info.kicker)}</div>
+        <div class="turn-title">${esc(info.title)}</div>
+        <div class="turn-sub" ${info.warn ? 'style="color:var(--red)"' : ''}>${esc(info.sub)}</div>
+      </div>
+      ${
+        st.paused
+          ? `<div class="timer"><b>${icon('pause', { size: 24 })}</b><span>durdu</span></div>`
+          : secs === ''
+            ? ''
+            : `<div class="timer ${low ? 'low' : ''}"><b>${secs}</b><span>saniye</span></div>`
+      }
     </div>
-    ${note}
-    <div class="bar" style="width:${pct}%"></div>`;
+    ${pause}
+    <div class="bar ${low ? 'low' : ''}" style="width:${st.paused ? 0 : pct}%"></div>`;
 
   // son 5 saniyede tik sesi (sadece ilgili oyuncuya)
   if (rem != null && !st.paused && secs <= 5 && secs > 0 && S.lastTick !== `${st.phase}:${secs}`) {
@@ -798,21 +950,24 @@ function renderPhase() {
   }
 }
 
-function renderMeta() {
+function renderInfo() {
   const w = S.state.word;
-  if (!w) return;
+  const el = document.getElementById('g-info');
+  if (!w) {
+    el.innerHTML = '';
+    return;
+  }
   const used = w.rowLimit - w.rowsRemaining;
+  const dots = Array.from({ length: w.rowLimit }, (_, i) => `<i class="${i < used ? 'used' : ''}"></i>`).join('');
   const card = w.chaosCard ? CHAOS[w.chaosCard] : null;
-  document.getElementById('g-meta').innerHTML = `
-    <span class="chip">${w.length} harf</span>
-    <span class="chip">${w.trapCount} tuzak</span>
-    <span class="chip">${w.forbiddenCount} yasak harf</span>
-    <span class="chip">Satır ${used}/${w.rowLimit}</span>
-    ${card ? `<span class="chip chaos">${card.icon} <b>${card.name}:</b> ${esc(card.desc(w))}</span>` : ''}`;
-}
-
-function miniTiles(word, cls) {
-  return `<span class="mini-tiles ${cls}">${[...word].map((c) => `<span>${esc(c)}</span>`).join('')}</span>`;
+  el.innerHTML = `
+    <div class="wordinfo">
+      <span><b>${w.length}</b> harf</span><i class="sep"></i>
+      <span><b>${w.trapCount}</b> tuzak</span><i class="sep"></i>
+      <span><b>${w.forbiddenCount}</b> yasak harf</span>
+      <span class="rows-meter" title="Kullanılan satır"><span class="dots">${dots}</span><span>Satır ${used}/${w.rowLimit}</span></span>
+    </div>
+    ${card ? `<div class="callout chaos">${icon(card.icon)}<div><b>Kaos kartı: ${card.name}</b><span>${esc(card.desc(w))}</span></div></div>` : ''}`;
 }
 
 function renderSecret() {
@@ -827,23 +982,26 @@ function renderSecret() {
   const mole = !isCaptain();
   const hide = S.hideSecret;
   el.innerHTML = `
-    <div class="secret ${mole ? 'mole' : ''}">
-      <div class="row-between">
-        <strong>${mole ? '🕵️ Köstebeksin! Takımı tuzağa çek, yakalanma.' : '🤐 Kaptan sensin — konuşmak yok, sadece sinyal!'}</strong>
-        <button class="icon small" data-action="toggle-secret" title="Gizle/göster">${hide ? '👁️' : '🙈'}</button>
+    <section class="secret ${mole ? 'mole' : ''}">
+      <div class="secret-head">
+        ${icon(mole ? 'ghost' : 'micOff', { size: 20 })}
+        <div class="title">${mole ? 'Köstebeksin' : 'Kaptan sensin'}<small>${
+          mole ? 'Takımı tuzağa çek, ama yakalanma.' : 'Konuşma; sadece sinyal kelimesi gönder.'
+        }</small></div>
+        <button class="icon-btn" data-action="toggle-secret" title="${hide ? 'Göster' : 'Gizle (ekran paylaşırken)'}" aria-label="Gizli bilgiyi gizle/göster">${icon(hide ? 'eye' : 'eyeOff')}</button>
       </div>
       ${
         hide
-          ? '<div class="hidden-word">GİZLİ BİLGİ SAKLANDI</div>'
-          : `
-      <div class="line"><span class="label" style="margin:0">Gizli kelime</span>${miniTiles(info.secret, 'secret-w')}</div>
-      <div class="line"><span class="label" style="margin:0">Tuzak</span>${info.traps.map((t) => miniTiles(t, 'trap-w')).join(' ')}</div>
-      <div class="line"><span class="label" style="margin:0">Yasak harfler</span>${info.forbidden
-        .map((c) => `<span class="forbidden-chip">${esc(c)}</span>`)
-        .join('')}${mole ? '' : '<span class="muted small">sinyalde hiçbir yerde kullanılamaz</span>'}</div>
-      ${!mole && info.categoryWords ? categoryWordsHtml(info) : ''}`
+          ? '<div class="hidden-note">Gizli bilgi saklandı.</div>'
+          : `<div class="kv">
+              <span class="label">Gizli kelime</span>${miniTiles(info.secret, 'secret-w')}
+              <span class="label">${info.traps.length > 1 ? 'Tuzaklar' : 'Tuzak'}</span><span class="traps">${info.traps.map((t) => miniTiles(t, 'trap-w')).join('')}</span>
+              <span class="label">Yasak harf</span>${forbiddenChips(info.forbidden)}
+            </div>
+            ${mole ? '' : '<div class="muted small">Yasak harfler sinyalde hiçbir yerde kullanılamaz.</div>'}
+            ${!mole && info.categoryWords ? categoryWordsHtml(info) : ''}`
       }
-    </div>`;
+    </section>`;
 }
 
 /** Kategori kilidinde kaptana, kabul edilen ve henüz kullanılmamış sinyaller gösterilir. */
@@ -851,7 +1009,7 @@ function categoryWordsHtml(info) {
   const used = new Set((S.state.word?.board ?? []).map((r) => r.word).filter(Boolean));
   const words = info.categoryWords.filter((w) => !used.has(w));
   return `<div class="cat-box">
-    <div class="label" style="margin:0">🏷️ “${esc(info.category)}” kategorisinde geçerli sinyaller</div>
+    <div class="label">${icon('tag', { size: 14 })} “${esc(info.category)}” kategorisinde geçerli sinyaller</div>
     <div class="cat-words">${
       words.length
         ? words.map((w) => `<button class="chip-btn" data-action="fill" data-word="${esc(w)}">${esc(w)}</button>`).join('')
@@ -873,17 +1031,17 @@ function nextCaptainId() {
   return null;
 }
 
-function rowHtml(row, len, i, opts) {
-  const kindIcon = { signal: '📡', guess: '🎯', empty: '⏱️' };
+const ROW_ICON = { signal: 'signal', guess: 'target', empty: 'clock' };
+
+function rowHtml(row, len, opts) {
   if (!row) {
-    const last = opts.last;
-    return `<div class="brow future ${last ? 'last-row' : ''}" title="${last ? 'Son satır: yalnızca tahmin' : ''}">
-      <span class="kind">${last ? '🎯' : ''}</span>
+    return `<div class="brow future" ${opts.last ? 'title="Son satır: yalnızca tahmin"' : ''}>
+      <span class="kind ${opts.last ? 'last' : ''}">${opts.last ? icon('target', { size: 16 }) : ''}</span>
       <div class="tiles">${'<div class="tile"></div>'.repeat(len)}</div>
-      <span class="by">${last ? 'son satır: yalnızca tahmin' : ''}</span>
+      <span></span>
+      <span class="by">${opts.last ? 'son satır · yalnızca tahmin' : ''}</span>
     </div>`;
   }
-  const anim = opts.animate ? 'flip' : '';
   const tiles =
     row.type === 'empty'
       ? '<div class="tile empty-row"></div>'.repeat(len)
@@ -892,11 +1050,12 @@ function rowHtml(row, len, i, opts) {
     row.type === 'signal'
       ? `Sinyal · ${esc(playerName(row.byPlayerId))}`
       : row.type === 'guess'
-        ? `Tahmin · ${esc(playerName(row.byPlayerId))}${row.result === 'trap' ? ' · 💥 TUZAK' : row.result === 'correct' ? ' · ✅' : ''}`
-        : 'Boş satır (süre doldu)';
-  return `<div class="brow ${anim} ${row.result ? `res-${row.result}` : ''}">
-    <span class="kind" title="${row.type}">${kindIcon[row.type]}</span>
+        ? `Tahmin · ${esc(playerName(row.byPlayerId))}${row.result === 'trap' ? ' · TUZAK' : row.result === 'correct' ? ' · doğru' : ''}`
+        : 'Boş satır · süre doldu';
+  return `<div class="brow ${opts.animate ? 'flip' : ''} ${row.result ? `res-${row.result}` : ''}">
+    <span class="kind" title="${row.type === 'signal' ? 'Sinyal' : row.type === 'guess' ? 'Tahmin' : 'Boş satır'}">${icon(ROW_ICON[row.type], { size: 16 })}</span>
     <div class="tiles">${tiles}</div>
+    <span></span>
     <span class="by">${by}</span>
   </div>`;
 }
@@ -911,7 +1070,7 @@ function renderBoard() {
   el.style.setProperty('--len', w.length);
   const rows = [];
   for (let i = 0; i < w.rowLimit; i++) {
-    rows.push(rowHtml(w.board[i], w.length, i, { animate: i >= S.renderedRows && i < w.board.length, last: i === w.rowLimit - 1 }));
+    rows.push(rowHtml(w.board[i], w.length, { animate: i >= S.renderedRows && i < w.board.length, last: i === w.rowLimit - 1 }));
   }
   el.innerHTML = rows.join('');
   S.renderedRows = w.board.length;
@@ -921,17 +1080,26 @@ function proposalHtml(p, st, canAct) {
   const w = st.word;
   const mine = p.approvals.includes(S.me.playerId);
   const need = p.kind === 'bank' ? w.thresholds.bank : w.thresholds.guess;
+  const pct = Math.min(100, (p.approvals.length / Math.max(1, need)) * 100);
   const what =
     p.kind === 'guess'
-      ? miniTiles(p.word, 'plain')
+      ? miniTiles(p.word, 'plain sm')
       : p.kind === 'pass'
-        ? '<strong>⏭ PAS</strong> <span class="muted small">(satır harcamaz)</span>'
-        : '<strong>🪙 Kumbaradan +1 satır</strong> <span class="muted small">(oybirliği)</span>';
-  const approvers = p.approvals.map(playerName).join(', ');
+        ? `${icon('skip', { size: 16 })} Pas <span class="muted small">(satır harcamaz)</span>`
+        : `${icon('coins', { size: 16 })} Kumbaradan +1 satır <span class="muted small">(oybirliği)</span>`;
   return `<div class="proposal ${mine ? 'mine' : ''}">
-    <div class="what">${what}<div class="who">${esc(playerName(p.byPlayerId))} önerdi · onaylayan: ${esc(approvers)}</div></div>
-    <span class="votes">${p.approvals.length}/${need}</span>
-    ${canAct ? `<button class="small ${mine ? '' : 'primary'}" data-action="approve" data-id="${p.id}">${mine ? 'Geri çek' : 'Onayla'}</button>` : ''}
+    <div class="what">${what}</div>
+    ${
+      canAct
+        ? `<button class="btn sm ${mine ? 'ghost' : 'primary'}" data-action="approve" data-id="${p.id}">${mine ? 'Geri çek' : `${icon('thumbsUp', { size: 14 })} Onayla`}</button>`
+        : '<span></span>'
+    }
+    <div class="who">
+      <span class="avatars">${p.approvals.map((id) => avatar(playerById(id), { small: true })).join('')}</span>
+      <span>${esc(playerName(p.byPlayerId))} önerdi</span>
+      <span class="votebar"><i style="width:${pct}%"></i></span>
+      <b>${p.approvals.length}/${need}</b>
+    </div>
   </div>`;
 }
 
@@ -941,98 +1109,84 @@ function renderPanel() {
   const el = document.getElementById('g-panel');
   const cap = isCaptain();
   let html = '';
-  switch (st.phase) {
-    case 'WORD_SETUP':
-      html = cap
-        ? `<h3>Kaptan sensin! 🤐</h3><div class="big-note">Gizli kelimeyi ve tuzakları incele. Birazdan sinyal göndereceksin. Bu kelime boyunca <b>konuşma</b>.</div>`
-        : `<h3>Yeni kelime: ${w.length} harf</h3><div class="big-note">Kaptan <b>${esc(playerName(w.captainId))}</b>. Kaptan konuşamaz; sinyalini bekleyin.</div>`;
-      break;
-    case 'SIGNAL':
-      html = cap
-        ? `<h3>Sinyal gönder</h3><div class="big-note">${w.length} harfli, yasak harf içermeyen bir kelime yaz. Renklerin önizlemesini aşağıda görürsün.</div>`
-        : `<h3>Kaptan sinyal düşünüyor…</h3><div class="big-note">Bu sırada aklınızdaki adayları konuşabilirsiniz. Tahmin önerileri tartışma aşamasında açılır.</div>`;
-      break;
-    case 'DISCUSSION': {
-      const lastRow = w.rowsRemaining <= 1;
-      const props = w.proposals.length
-        ? `<div class="proposals">${w.proposals.map((p) => proposalHtml(p, st, !cap && !st.paused)).join('')}</div>`
-        : '<div class="muted">Henüz öneri yok.</div>';
-      html = `
-        <div class="row-between"><h3>${cap ? 'Takım tartışıyor — sessiz kal 🤐' : 'Tartışın ve tahmin önerin'}</h3>
-        <span class="muted small">Tahmin ${w.guessesThisDiscussion}/${w.maxGuesses} · onay eşiği ${w.thresholds.guess}/${w.guesserCount}</span></div>
-        ${lastRow ? '<div class="pause-note" style="margin:0">🎯 Son satır: pas yok, süre dolarsa kelime kaybedilir.</div>' : ''}
-        ${props}
-        ${
-          cap
-            ? '<div class="muted small">Sıradaki sinyalini şimdiden yazıp önizleyebilirsin.</div>'
-            : `<div class="actions">
-                 <button data-action="pass" ${lastRow || st.paused ? 'disabled' : ''}>⏭ Pas öner</button>
-                 <button data-action="bank" ${st.run.bank <= 0 || st.paused ? 'disabled' : ''}>🪙 Kumbaradan satır (${st.run.bank})</button>
-               </div>`
-        }`;
-      break;
-    }
-    case 'MOLE_VOTE': {
-      const voted = new Set(w.votedIds || []);
-      const targets = st.players.filter((p) => p.id !== S.me.playerId && p.id !== w.captainId);
-      html = `<h3>🕵️ Köstebek kim?</h3>
-        <div class="big-note">Kelime bitti. Köstebek olduğunu düşündüğün kişiye oy ver. En çok oyu alan köstebekse takım +1 can kazanır (eşitlikte kaçar).</div>
-        <div class="vote-grid">${targets
-          .map((p) => `<button data-action="vote" data-id="${p.id}" class="${S.myVote === p.id ? 'chosen' : ''}" ${st.paused ? 'disabled' : ''}>${esc(p.name)}</button>`)
-          .join('')}</div>
-        <div class="muted small">${voted.size}/${st.players.filter((p) => p.connected).length} kişi oy verdi${voted.has(S.me.playerId) ? ' · senin oyun alındı' : ''}</div>`;
-      break;
-    }
-    case 'REVEAL':
-      html = revealHtml(st);
-      break;
-    default:
-      html = '';
+  if (st.phase === 'DISCUSSION') {
+    const lastRow = w.rowsRemaining <= 1;
+    const left = w.maxGuesses - w.guessesThisDiscussion;
+    html = `
+      <div class="panel-head"><h3 class="h2">Öneriler</h3><span class="muted small">Bu turda ${left} tahmin hakkı</span></div>
+      ${
+        w.proposals.length
+          ? `<div class="proposals">${w.proposals.map((p) => proposalHtml(p, st, !cap && !st.paused)).join('')}</div>`
+          : `<div class="empty-state">${cap ? 'Henüz öneri yok.' : 'Henüz öneri yok. Klavyeden bir kelime yazıp önerebilirsin.'}</div>`
+      }
+      ${
+        cap
+          ? ''
+          : `<div class="panel-actions">
+              <button class="btn sm" data-action="pass" ${lastRow || st.paused ? 'disabled' : ''} title="${lastRow ? 'Son satırda pas yok' : 'Yeni sinyal iste (satır harcamaz)'}">${icon('skip', { size: 16 })} Pas öner</button>
+              <button class="btn sm" data-action="bank" ${st.run.bank <= 0 || st.paused ? 'disabled' : ''} title="Herkes onaylarsa bu kelimeye +1 satır">${icon('coins', { size: 16 })} +1 satır (${st.run.bank})</button>
+            </div>`
+      }`;
+  } else if (st.phase === 'MOLE_VOTE') {
+    const voted = new Set(w.votedIds || []);
+    const targets = st.players.filter((p) => p.id !== S.me.playerId && p.id !== w.captainId);
+    const total = st.players.filter((p) => p.connected).length;
+    html = `
+      <div class="panel-head"><h3 class="h2">Köstebek kim?</h3><span class="muted small">${voted.size}/${total} oy</span></div>
+      <div class="vote-grid">${targets
+        .map(
+          (p) =>
+            `<button class="vote-btn ${S.myVote === p.id ? 'chosen' : ''}" data-action="vote" data-id="${p.id}" ${st.paused ? 'disabled' : ''}>${avatar(p, { small: true })}<span>${esc(p.name)}</span></button>`,
+        )
+        .join('')}</div>
+      <div class="muted small">En çok oyu alan köstebekse takım +1 can kazanır; eşitlikte köstebek kaçar.</div>`;
+  } else if (st.phase === 'REVEAL') {
+    html = revealHtml(st);
   }
   el.innerHTML = html;
-  el.hidden = !html;
 }
 
 function revealHtml(st) {
   const r = st.reveal;
   if (!r) return '';
-  const title = {
-    solved: ['good', `Çözüldü! 🎉${r.star ? ' +⭐' : ''}`],
-    trap: ['bad', 'Tuzağa düştünüz! 💥 −1 can'],
-    rows: ['bad', 'Satırlar bitti… −1 can'],
-  }[r.result] ?? ['', 'Kelime bitti'];
-  const extras = [];
-  if (r.bankGained) extras.push(`🪙 +${r.bankGained} kumbara`);
-  if (r.lifeGained) extras.push('❤️ +1 can (5 çözüm)');
+  const good = r.result === 'solved';
+  const title = { solved: 'Çözüldü!', trap: 'Tuzağa düştünüz', rows: 'Satırlar bitti' }[r.result] ?? 'Kelime bitti';
+  const gains = [];
+  if (r.star) gains.push(`<span class="tag primary">${icon('star', { size: 12, fill: true })} +1 yıldız</span>`);
+  if (r.bankGained) gains.push(`<span class="tag">${icon('coins', { size: 12 })} +${r.bankGained} kumbara</span>`);
+  if (r.lifeGained) gains.push(`<span class="tag ok">${icon('heart', { size: 12, fill: true })} +1 can</span>`);
+  if (r.lifeLost) gains.push(`<span class="tag danger">${icon('heart', { size: 12, fill: true })} −1 can</span>`);
   let mole = '';
   if (r.moleId) {
-    const votes = r.votes ? Object.entries(r.votes).map(([v, t]) => `${esc(playerName(v))} → ${esc(playerName(t))}`).join(', ') : '';
-    mole = `<div>🕵️ Köstebek: <b>${esc(playerName(r.moleId))}</b> — ${
-      r.moleVoteSkipped ? 'bağlantısı koptuğu için oylama yapılmadı' : r.moleCaught ? 'yakalandı! ❤️ +1 can' : 'yakalanmadı'
-    }${votes ? `<div class="muted small">Oylar: ${votes}</div>` : ''}</div>`;
+    const votes = r.votes ? Object.entries(r.votes).map(([v, t]) => `${playerName(v)} → ${playerName(t)}`).join(', ') : '';
+    const status = r.moleVoteSkipped ? 'bağlantısı koptuğu için oylama yapılmadı' : r.moleCaught ? 'yakalandı, takım +1 can kazandı' : 'yakalanmadı';
+    mole = `<div class="notice ${r.moleCaught ? 'info' : 'danger'}">${icon('ghost', { size: 16 })}<div>Köstebek <b>${esc(playerName(r.moleId))}</b>: ${status}.${
+      votes ? `<div class="small" style="opacity:.8">Oylar: ${esc(votes)}</div>` : ''
+    }</div></div>`;
   }
   return `
-    <div class="result-banner ${title[0]}">${title[1]}</div>
-    ${extras.length ? `<div>${extras.join(' · ')}</div>` : ''}
-    <div class="reveal-grid">
-      <div class="line"><span class="label">Gizli kelime</span> ${miniTiles(r.secret, 'secret-w')}</div>
-      <div class="line"><span class="label">Tuzak</span> ${r.traps.map((t) => miniTiles(t, 'trap-w')).join(' ')}</div>
-      <div class="line"><span class="label">Yasak harfler</span> ${r.forbidden.map((c) => `<span class="forbidden-chip">${esc(c)}</span>`).join(' ')}</div>
+    <div class="result ${good ? 'good' : 'bad'}">
+      <div class="badge">${icon(good ? 'check2' : r.result === 'trap' ? 'alert' : 'clock', { size: 22 })}</div>
+      <div><div class="result-banner">${title}</div>${gains.length ? `<div class="gains">${gains.join('')}</div>` : ''}</div>
+    </div>
+    <div class="kv">
+      <span class="label">Gizli kelime</span>${miniTiles(r.secret, 'secret-w')}
+      <span class="label">${r.traps.length > 1 ? 'Tuzaklar' : 'Tuzak'}</span><span class="traps">${r.traps.map((t) => miniTiles(t, 'trap-w')).join('')}</span>
+      <span class="label">Yasak harf</span>${forbiddenChips(r.forbidden)}
     </div>
     ${mole}
-    <div class="muted">🎙️ Kaptan ${esc(playerName(r.captainId))} artık konuşabilir: sinyallerini açıklasın!</div>
     ${nextCaptainLine()}
-    ${isHost() ? '<button class="primary" data-action="skip-reveal">Devam</button>' : ''}`;
+    ${isHost() ? `<button class="btn primary block" data-action="skip-reveal">Devam ${icon('skip', { size: 16 })}</button>` : ''}`;
 }
 
 function nextCaptainLine() {
   const st = S.state;
-  if (st.run.lives <= 0) return '<div><b>Canlar bitti</b> — sonuçlar geliyor…</div>';
+  if (st.run.lives <= 0) return '<div class="notice danger">Canlar bitti — sonuçlar geliyor.</div>';
   const next = nextCaptainId();
   if (!next) return '';
   return next === S.me.playerId
-    ? '<div class="next-cap me">⏭ Sıradaki kaptan <b>sensin</b> — hazırlan!</div>'
-    : `<div class="next-cap">⏭ Sıradaki kaptan: <b>${esc(playerName(next))}</b></div>`;
+    ? '<div class="notice info next-cap">Sıradaki kaptan <b>sensin</b> — hazırlan!</div>'
+    : `<div class="small next-cap" style="color:var(--text-2)">Sıradaki kaptan: <b>${esc(playerName(next))}</b></div>`;
 }
 
 function canType() {
@@ -1040,6 +1194,12 @@ function canType() {
   if (!st?.word || !WORD_PHASES.has(st.phase)) return false;
   if (isCaptain()) return true;
   return st.phase === 'SIGNAL' || st.phase === 'DISCUSSION';
+}
+
+function canSubmitNow() {
+  const st = S.state;
+  if (!st?.word || st.paused || [...S.typed].length !== st.word.length) return false;
+  return isCaptain() ? st.phase === 'SIGNAL' : st.phase === 'DISCUSSION';
 }
 
 function renderTyped() {
@@ -1066,24 +1226,18 @@ function renderTyped() {
       msg = ERRORS[pv.error]?.(S) ?? pv.error;
       cls = 'err';
     } else if (pv && !pv.error) {
-      msg = st.phase === 'SIGNAL' ? 'Geçerli sinyal ✓ GÖNDER tuşuyla gönder' : 'Geçerli sinyal ✓ (sinyal aşamasında gönderebilirsin)';
+      msg = st.phase === 'SIGNAL' ? 'Geçerli sinyal — GÖNDER ile gönder' : 'Geçerli sinyal — sinyal aşamasında gönderebilirsin';
       cls = 'ok';
-    } else msg = 'Önizleme: renkler gönderilince herkese böyle görünecek';
+    } else msg = 'Önizleme: renkler gönderilince herkese böyle görünür';
   } else {
     msg = st.phase === 'DISCUSSION' ? 'Kelimeyi yaz, ÖNER ile tahmin önerisi yap' : 'Taslak yazabilirsin; öneriler tartışmada açılır';
   }
   el.innerHTML = `
-    <div class="typed-row" style="--tile: min(44px, calc((100vw - 32px - 6px * ${len}) / ${len}))"><div class="tiles">${tiles}</div></div>
+    <div class="tiles" style="--len:${len}">${tiles}</div>
     <div class="msg ${cls}">${esc(msg)}</div>`;
   // GÖNDER/ÖNER tuşu, gönderilebilir durumdayken vurgulanır.
   const enter = document.querySelector('.key[data-key="ENTER"]');
   if (enter) enter.classList.toggle('go', canSubmitNow());
-}
-
-function canSubmitNow() {
-  const st = S.state;
-  if (!st?.word || st.paused || [...S.typed].length !== st.word.length) return false;
-  return isCaptain() ? st.phase === 'SIGNAL' : st.phase === 'DISCUSSION';
 }
 
 function keyColors() {
@@ -1113,7 +1267,7 @@ function renderKeyboard() {
       `<div class="krow">${row
         .map((k) => {
           if (k === 'ENTER') return `<button class="key wide ${canSubmitNow() ? 'go' : ''}" data-action="key" data-key="ENTER">${cap ? 'GÖNDER' : 'ÖNER'}</button>`;
-          if (k === 'BACK') return `<button class="key wide" data-action="key" data-key="BACK" aria-label="sil">⌫</button>`;
+          if (k === 'BACK') return `<button class="key wide" data-action="key" data-key="BACK" aria-label="Sil">${icon('backspace', { size: 20 })}</button>`;
           const cls = forbidden.has(k) ? 'forbidden' : colors[k] ? `c-${colors[k]}` : '';
           return `<button class="key ${cls}" data-action="key" data-key="${k}">${k}</button>`;
         })
@@ -1121,45 +1275,48 @@ function renderKeyboard() {
   ).join('');
 }
 
-function renderPlayers() {
+function renderPeople() {
   const st = S.state;
   const w = st.word;
+  const el = document.getElementById('g-people');
+  if (S.editOrder && isHost()) {
+    el.innerHTML = `<section class="card">
+      <div class="spread" style="margin-bottom:4px"><div class="label">Kaptan sırası ve oyuncular</div>
+      <button class="btn sm ghost" data-action="edit-order">Tamam</button></div>
+      <ol class="plist">${st.players.map((p, i) => playerRow(p, i, st.players.length, true)).join('')}</ol>
+    </section>`;
+    return;
+  }
   const next = w ? nextCaptainId() : null;
-  document.getElementById('g-players').innerHTML = st.players
-    .map((p, i) => {
+  el.innerHTML = `<div class="people">${st.players
+    .map((p) => {
       const captain = w && p.id === w.captainId;
-      const edit = S.editOrder && isHost();
-      return `<span class="pchip ${captain ? 'captain' : ''} ${p.id === S.me.playerId ? 'me' : ''}" title="${
-        captain ? 'Kaptan' : p.id === next ? 'Sıradaki kaptan' : ''
-      }">
-        <span class="dot ${p.connected ? '' : 'off'}"></span>
-        ${i + 1}. ${esc(p.name)}${captain ? ' 🤐' : ''}${p.id === next && !captain ? ' ⏭' : ''}${p.id === st.hostId ? ' 👑' : ''}
-        ${
-          edit
-            ? `<button class="icon small" data-action="move" data-id="${p.id}" data-dir="-1" ${i === 0 ? 'disabled' : ''}>↑</button><button class="icon small" data-action="move" data-id="${p.id}" data-dir="1" ${i === st.players.length - 1 ? 'disabled' : ''}>↓</button>${
-                p.id !== S.me.playerId ? `<button class="icon small danger" data-action="kick" data-id="${p.id}" title="Odadan çıkar">✕</button>` : ''
-              }`
-            : ''
-        }
-      </span>`;
+      const marks = [];
+      if (captain) marks.push(`<span class="cap" title="Kaptan">${icon('micOff', { size: 14 })}</span>`);
+      else if (p.id === next) marks.push(`<span title="Sıradaki kaptan">${icon('skip', { size: 14 })}</span>`);
+      if (p.id === st.hostId) marks.push(`<span class="host" title="Oda sahibi">${icon('crown', { size: 14 })}</span>`);
+      if (!p.connected) marks.push(`<span title="Bağlantı yok">${icon('wifiOff', { size: 14 })}</span>`);
+      return `<span class="person ${captain ? 'captain' : ''}">${avatar(p)}<span class="pn">${esc(p.name)}${
+        p.id === S.me.playerId ? ' <span class="you">(sen)</span>' : ''
+      }</span><span class="marks">${marks.join('')}</span></span>`;
     })
-    .join('');
+    .join('')}</div>`;
 }
 
-function renderHostBar() {
-  const el = document.getElementById('g-host');
+function renderTools() {
+  const el = document.getElementById('g-tools');
   const st = S.state;
   const hostPaused = st.pauseReasons.includes('host');
   el.innerHTML = `
-    ${isHost() ? `<button class="small" data-action="pause">${hostPaused ? '▶ Devam ettir' : '⏸ Duraklat'}</button>` : ''}
-    ${isHost() ? `<button class="small" data-action="edit-order">${S.editOrder ? '✓ Tamam' : '↕ Sıra / oyuncular'}</button>` : ''}
-    <button class="small link" data-action="leave">Ayrıl</button>`;
+    ${isHost() ? `<button class="btn sm" data-action="pause">${icon(hostPaused ? 'play' : 'pause', { size: 16 })} ${hostPaused ? 'Devam ettir' : 'Duraklat'}</button>` : ''}
+    ${isHost() && !S.editOrder ? `<button class="btn sm ghost" data-action="edit-order">${icon('users', { size: 16 })} Sıra ve oyuncular</button>` : ''}
+    <span class="grow"></span>
+    <button class="text-btn" data-action="leave">${icon('logout', { size: 16 })} Ayrıl</button>`;
 }
 
 // ── oyun sonu ──
 
-const RESULT_LABEL = { solved: '✅ çözüldü', trap: '💥 tuzak', rows: '⌛ satır bitti', cancelled: '🚫 iptal' };
-const CHAOS_SHORT = { category: '🏷️', blind: '🙈', fast: '⚡', mole: '🕵️' };
+const CHAOS_NAME = { category: 'Kategori kilidi', blind: 'Kör renk', fast: 'Hızlı tur', mole: 'Köstebek' };
 
 function updateEnd() {
   const st = S.state;
@@ -1174,52 +1331,70 @@ function updateEnd() {
     .map((p) => {
       const t = p.stats;
       const avg = t.captainSolved ? (t.captainRowsSolved / t.captainSolved).toFixed(1) : '—';
-      return `<tr><td>${esc(p.name)}</td><td>${t.captainWords}</td><td>${t.captainSolved}</td><td>${avg}</td><td>${t.captainStars}</td>
+      return `<tr><td><span class="row">${avatar({ name: p.name }, { small: true })}${esc(p.name)}</span></td><td>${t.captainWords}</td><td>${t.captainSolved}</td><td>${avg}</td><td>${t.captainStars}</td>
         <td>${t.proposed}</td><td>${t.submitted}</td><td>${t.submittedCorrect}</td><td>${t.submittedTrap}</td>
         <td>${t.moleTurns}</td><td>${t.moleSuccess}</td><td>${t.moleCaught}</td><td>${t.moleCorrectVotes}</td></tr>`;
     })
     .join('');
+  const recordLine = rec?.isNewRecord
+    ? `Yeni takım rekoru!${rec.previous.bestScore || rec.previous.bestStars ? ` Önceki: ${rec.previous.bestScore} kelime · ${rec.previous.bestStars} yıldız` : ''}`
+    : rec
+      ? `Takım rekoru: ${rec.bestScore} kelime · ${rec.bestStars} yıldız`
+      : '';
   el.innerHTML = `
-    ${LOGO}
-    <div class="muted" style="text-align:center">${esc(s.teamName)} · oyun bitti</div>
-    <div class="score-big">${s.score} <small>kelime</small> · ⭐ ${s.stars}</div>
-    <div class="record ${rec?.isNewRecord ? 'new' : 'muted'}">${
-      rec?.isNewRecord
-        ? `🏆 Yeni takım rekoru!${rec.previous.bestScore || rec.previous.bestStars ? ` (önceki: ${rec.previous.bestScore} kelime · ⭐ ${rec.previous.bestStars})` : ''}`
-        : rec
-          ? `Takım rekoru: ${rec.bestScore} kelime · ⭐ ${rec.bestStars}`
-          : ''
-    }</div>
+    <header class="topbar">
+      <div class="brand">${logo(true)}<div style="min-width:0"><div class="name">${esc(s.teamName)}</div><div class="code">OYUN BİTTİ</div></div></div>
+      <button class="text-btn" data-action="leave">${icon('logout', { size: 16 })} Odadan çık</button>
+    </header>
+    <section class="card score-card">
+      <div class="trophy">${icon('trophy', { size: 28 })}</div>
+      <div class="label">Çözülen kelime</div>
+      <div class="score-big">${s.score}</div>
+      <span class="pill gold">${icon('star', { size: 16, fill: true })} ${s.stars} yıldız</span>
+      <div class="record ${rec?.isNewRecord ? 'new' : ''}">${esc(recordLine)}</div>
+    </section>
     ${
       s.awards.length
-        ? `<section><div class="label">Ödüller</div><div class="awards">${s.awards
-            .map((a) => `<div class="award"><div class="t">🏅 ${esc(a.title)}</div><div class="muted small">${esc(a.description)}</div><div class="w">${a.winners.map((w) => esc(w.name)).join(', ')}</div></div>`)
+        ? `<section class="stack"><div class="label">Ödüller</div><div class="awards">${s.awards
+            .map(
+              (a) => `<div class="card award"><span class="medal">${icon('award', { size: 18 })}</span><div>
+                <div class="t">${esc(a.title)}</div><div class="d">${esc(a.description)}</div>
+                <div class="w">${a.winners.map((w) => esc(w.name)).join(', ')}</div></div></div>`,
+            )
             .join('')}</div></section>`
         : ''
     }
-    <section class="card">
-      <div class="label">Kelimeler</div>
-      <div class="table-wrap"><table>
-        <tr><th>#</th><th>Kelime</th><th>Tuzak</th><th>Kaptan</th><th>Sonuç</th><th>Satır</th><th></th></tr>
-        ${s.words
-          .map(
-            (w) => `<tr><td>${w.wordIndex}</td><td><b>${esc(w.secret)}</b></td><td class="muted">${esc(w.traps.join(', '))}</td><td>${esc(w.captainName)}</td>
-              <td>${RESULT_LABEL[w.result] ?? w.result}${w.star ? ' ⭐' : ''}</td><td>${w.rowsUsed}/${w.rowLimit}</td><td>${w.chaosCard ? CHAOS_SHORT[w.chaosCard] : ''}</td></tr>`,
-          )
-          .join('')}
-      </table></div>
+    <section class="card flush">
+      <div class="card-head label">Kelimeler</div>
+      <ul class="wordlist">${s.words
+        .map((w) => {
+          const res = RESULT[w.result] ?? { label: w.result, cls: '' };
+          const meta = [
+            `Tuzak: ${w.traps.join(', ')}`,
+            `Kaptan ${w.captainName}`,
+            `${w.rowsUsed}/${w.rowLimit} satır`,
+            w.chaosCard ? CHAOS_NAME[w.chaosCard] : '',
+          ].filter(Boolean);
+          return `<li><span class="idx">${w.wordIndex}</span><span class="w">${esc(w.secret)}</span>
+            <span class="tag ${res.cls}">${res.label}${w.star ? ` ${icon('star', { size: 12, fill: true })}` : ''}</span>
+            <span class="sub">${esc(meta.join(' · '))}</span></li>`;
+        })
+        .join('')}</ul>
     </section>
     <details class="card" id="stats-details" ${S.statsOpen ? 'open' : ''}>
-      <summary style="cursor:pointer;font-weight:700">Oyuncu istatistikleri</summary>
+      <summary>Oyuncu istatistikleri</summary>
       <div class="table-wrap"><table>
-        <tr><th>Oyuncu</th><th>Kaptan</th><th>Çözdü</th><th>Ort. satır</th><th>⭐</th><th>Öneri</th><th>Gönderilen</th><th>Doğru</th><th>Tuzak</th><th>Köstebek</th><th>Başarılı</th><th>Yakalandı</th><th>Doğru oy</th></tr>
+        <tr><th>Oyuncu</th><th>Kaptan</th><th>Çözdü</th><th>Ort. satır</th><th>Yıldız</th><th>Öneri</th><th>Gönderilen</th><th>Doğru</th><th>Tuzak</th><th>Köstebek</th><th>Başarılı</th><th>Yakalandı</th><th>Doğru oy</th></tr>
         ${stats}
       </table></div>
     </details>
-    <div class="actions">
-      ${isHost() ? '<button class="primary" data-action="start">🔁 Yeniden oyna</button><button data-action="to-lobby">Lobiye dön</button>' : '<div class="hint">Yeni oyunu oda sahibi başlatabilir.</div>'}
-    </div>
-    <div style="text-align:center"><button class="link" data-action="leave">Odadan ayrıl</button></div>`;
+    <section class="cta">
+      ${
+        isHost()
+          ? `<div class="buttons"><button class="btn ghost" data-action="to-lobby">${icon('home', { size: 16 })} Lobiye dön</button><button class="btn primary" data-action="start">${icon('restart', { size: 16 })} Yeniden oyna</button></div>`
+          : '<div class="hint">Yeni oyunu oda sahibi başlatabilir.</div>'
+      }
+    </section>`;
 }
 
 const UPDATE = { lobby: updateLobby, game: updateGame, end: updateEnd };
@@ -1404,9 +1579,6 @@ document.addEventListener('click', (e) => {
     case 'key':
       pressKey(btn.dataset.key);
       break;
-    case 'submit':
-      submitTyped();
-      break;
     case 'approve':
       send({ type: 'approve', proposalId: id });
       break;
@@ -1439,6 +1611,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     pressKey('BACK');
   } else if (e.key === 'Enter') {
+    if (e.target instanceof HTMLButtonElement && e.target.dataset.action !== 'key') return; // odaklı düğmeye bırak
     e.preventDefault();
     pressKey('ENTER');
   } else if (e.key.length === 1) {
@@ -1461,7 +1634,7 @@ document.addEventListener(
 // Sayaçları sunucudaki endsAt'e göre çiz.
 setInterval(() => {
   if (S.screen === 'game') {
-    renderPhase();
+    renderTurn();
     updateTitle();
   }
 }, 250);

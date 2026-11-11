@@ -105,7 +105,10 @@ sütununu `1` yap, kaydedip `--approvals` ile uygula, sonra `config/game.json`'d
 - `server/data.js` — sözlük, kategoriler, bulmaca seçimi (seviye ve geriye düşme)
 - `server/store.js` — takım rekorları (dosya ya da PostgreSQL)
 - `server/index.js` — HTTP (statik dosyalar, `/health`) + WebSocket (`/ws`)
-- `public/` — derleme gerektirmeyen istemci (HTML/CSS/JS), Türkçe Q ekran klavyesi
+- `public/` — derleme gerektirmeyen istemci (HTML/CSS/JS modülleri), Türkçe Q ekran klavyesi.
+  Arayüz token tabanlı tek bir tasarım sistemi kullanır (`style.css`), açık/koyu temayı cihaz
+  ayarına göre seçer; ikonlar `icons.js`'teki satır içi SVG'lerdir. Telefonda tek sütun ve
+  ekranın altına sabitlenen klavye, masaüstünde iki sütunlu düzen.
 
 Gizli bilgiler (gizli kelime, tuzaklar, yasak harfler, köstebek kimliği) hiçbir zaman herkese
 yayınlanan duruma yazılmaz; sadece ilgili oyuncuya özel mesajla gider ve hesaplaşmada açılır.
