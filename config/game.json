@@ -1,6 +1,5 @@
 {
-  "minPlayers": 3,
-  "devMinPlayers": 2,
+  "minPlayers": 2,
   "maxPlayers": 8,
   "startLives": 3,
   "maxLives": 3,

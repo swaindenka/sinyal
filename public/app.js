@@ -581,17 +581,8 @@ function updateTitle() {
 
 // ───────────────────────── ortak parçalar ─────────────────────────
 
-const LOGO_TILES = [
-  ['S', 'G'],
-  ['İ', 'X'],
-  ['N', 'Y'],
-  ['Y', 'G'],
-  ['A', 'X'],
-  ['L', 'G'],
-];
-
 function logo(small = false) {
-  return `<span class="logo ${small ? 'sm' : ''}" role="img" aria-label="SİNYAL">${LOGO_TILES.map(([c, k]) => `<span class="t-${k}">${c}</span>`).join('')}</span>`;
+  return `<span class="logo ${small ? 'sm' : ''}" role="img" aria-label="SİNYAL"><span class="logo-mark">${icon('signal', { size: small ? 14 : 26 })}</span><span class="logo-word">SİNYAL</span></span>`;
 }
 
 function hueOf(name) {
@@ -607,8 +598,19 @@ function avatar(p, { small = false, status = false } = {}) {
   }</span>`;
 }
 
-function miniTiles(word, cls) {
-  return `<span class="mini ${cls}">${[...word].map((c) => `<span>${esc(c)}</span>`).join('')}</span>`;
+/** Kelimeyi küçük bir kâğıt kart olarak gösterir (gizli kelime, tuzak, öneri). */
+function wordChip(word, kind = '') {
+  return `<span class="wchip ${kind ? `is-${kind}` : ''}">${esc(word)}</span>`;
+}
+
+/** Kart üzerindeki harfler: her harfin altında renk çizgisi (tam yer / kelimede var / yok). */
+function lettersHtml(word, colors, len = [...word].length) {
+  const letters = [...word];
+  return Array.from({ length: len }, (_, k) => {
+    const c = letters[k];
+    if (!c) return '<span class="lt blank">&nbsp;<i></i></span>';
+    return `<span class="lt ${colors ? `c-${colors[k]}` : 'typed'}">${esc(c)}<i></i></span>`;
+  }).join('');
 }
 
 function forbiddenChips(letters) {
@@ -619,11 +621,11 @@ const RULES = `
 <details class="card rules">
   <summary>${icon('help')} Nasıl oynanır?</summary>
   <ul>
-    <li>3–8 kişilik <b>tek takım</b> olarak, Discord gibi sesli bir kanalda oynayın.</li>
+    <li>2–8 kişilik <b>tek takım</b> olarak, Discord gibi sesli bir kanalda oynayın. İki kişide biri kaptan, diğeri tahminci olur.</li>
     <li>Her kelimede biri <b>kaptan</b> olur: gizli kelimeyi görür ama <b>konuşamaz</b>, sadece <b>sinyal kelimesi</b> gönderir.</li>
-    <li>Sinyalin <b>anlamı</b> gizli kelimeyi çağrıştırır; <b>harfleri</b> renkli noktalarla gösterilir: mavi tam yerinde, turuncu kelimede var ama başka yerde, gri kelimede yok.</li>
+    <li>Sinyalin <b>anlamı</b> gizli kelimeyi çağrıştırır; <b>harfleri</b> de ipucu verir: harfin altındaki çizgi mavi ise harf tam yerinde, turuncu ise kelimede var ama başka yerde, gri ise kelimede yok.</li>
     <li><b>Tuzaklar</b> gizli kelimeden tek harf farklı kelimelerdir; tuzağı tahmin etmek can götürür. Kaptan, farkı veren <b>yasak harfleri</b> kullanamaz — bu ayrımı ancak anlamla verebilir.</li>
-    <li>Tahminciler tartışır, tahmin önerir ve onaylar. Çoğunluk onaylayınca tahmin gönderilir. Bir tartışmada en fazla 2 tahmin.</li>
+    <li>Tahminciler tartışır, tahmin önerir ve onaylar. Çoğunluk onaylayınca tahmin gönderilir (tek tahminci varsa hemen). Bir tartışmada en fazla 2 tahmin.</li>
     <li>Her sinyal, tahmin ya da boş satır bir satır harcar. Son satır sadece tahmin içindir.</li>
     <li>Çözülen kelimede artan satırlar <b>kumbaraya</b> gider; gerekince oybirliğiyle kumbaradan satır çekin.</li>
     <li>En fazla 1 sinyalle çözülen kelime yıldız kazandırır. Her 5 çözümde +1 can. Canlar bitene kadar devam!</li>
@@ -638,7 +640,7 @@ const LAYOUT = {
     <main class="home">
       <div class="hero">
         ${logo()}
-        <p>Takımca oynanan Türkçe kelime oyunu. Kaptan konuşamaz, sadece sinyal gönderir.</p>
+        <p>2–8 kişilik takım kelime oyunu. Kaptan gizli kelimeyi bilir ama konuşamaz; sadece sinyal kartı gönderir.</p>
       </div>
       <section class="card stack">
         <label class="field"><span class="label">Adın</span><input class="input" type="text" id="name" maxlength="16" autocomplete="nickname" placeholder="ör. Deniz" /></label>
@@ -654,7 +656,7 @@ const LAYOUT = {
       </section>
       <section class="intro">
         <div class="intro-step"><span class="num">${icon('micOff')}</span><div><b>Kaptan konuşamaz</b><span>Gizli kelimeyi bilen kaptan sadece sinyal kelimeleri gönderir.</span></div></div>
-        <div class="intro-step"><span class="num">${icon('palette')}</span><div><b>Anlam + renkler</b><span>Sinyalin anlamı çağrıştırır; harfleri mavi/turuncu/gri renklerle ipucu verir.</span></div></div>
+        <div class="intro-step"><span class="num">${icon('palette')}</span><div><b>Anlam + renkler</b><span>Sinyal kartının anlamı çağrıştırır; harflerin altındaki renkli çizgiler ek ipucu verir.</span></div></div>
         <div class="intro-step"><span class="num">${icon('alert')}</span><div><b>Tuzaklara dikkat</b><span>Tek harf farklı tuzak kelimeyi tahmin etmek can götürür.</span></div></div>
       </section>
       ${RULES}
@@ -799,7 +801,7 @@ function updateLobby() {
     </div>
     <div class="hint">${esc(
       isHost() ? hint || `${readyCount}/${players.length} oyuncu hazır. Herkes hazırsa başlatabilirsin.` : `${readyCount}/${players.length} oyuncu hazır. Oyunu oda sahibi başlatacak.`,
-    )}${st.devMode ? ' · Geliştirme modu: 2 oyuncu yeterli.' : ''}</div>`;
+    )}</div>`;
 }
 
 /** Lobide ve oyundaki "sıra ve oyuncular" düzenleyicisinde kullanılan oyuncu satırı. */
@@ -885,12 +887,22 @@ function turnInfo() {
     case 'DISCUSSION': {
       const last = w.rowsRemaining <= 1;
       if (cap) return { kicker, icon: 'micOff', title: 'Takım tartışıyor', sub: 'Sessiz kal. Sıradaki sinyalini şimdiden yazabilirsin.' };
+      if (w.guesserCount === 1) {
+        return {
+          kicker,
+          icon: 'target',
+          title: 'Tahmin et',
+          sub: last ? 'Son kart: pas yok, süre dolarsa kelime kaybedilir.' : 'Tek tahminci sensin: tahminin onay beklemeden gönderilir.',
+          mine: true,
+          warn: last,
+        };
+      }
       return {
         kicker,
         icon: 'messages',
         title: 'Tartışın ve tahmin önerin',
         sub: last
-          ? 'Son satır: pas yok, süre dolarsa kelime kaybedilir.'
+          ? 'Son kart: pas yok, süre dolarsa kelime kaybedilir.'
           : `Çoğunluk (${w.thresholds.guess}/${w.guesserCount}) onaylayınca tahmin gönderilir.`,
         mine: true,
         warn: last,
@@ -994,7 +1006,7 @@ function knowledge(w) {
   return { known, present: [...present], absent: [...absent] };
 }
 
-/** Kelime kartı: seviye, kurallar, takımın bildikleri ve tuzağın hangi harfte olduğu. */
+/** Gizli kelime kartı: seviye, kurallar, takımın bildiği harfler ve tuzağın hangi harfte olduğu. */
 function renderWord() {
   const w = S.state.word;
   const el = document.getElementById('g-word');
@@ -1002,39 +1014,33 @@ function renderWord() {
     el.innerHTML = '';
     return;
   }
-  const used = w.rowLimit - w.rowsRemaining;
-  const dots = Array.from({ length: w.rowLimit }, (_, i) => `<i class="${i < used ? 'used' : ''}"></i>`).join('');
   const k = knowledge(w);
   const blind = w.chaosCard === 'blind';
   const slots = k.known
     .map((c, i) => {
       const trap = w.trapPos === i;
-      return `<div class="slot ${trap ? 'trap' : ''}" ${trap ? 'title="Tuzak bu harfte"' : ''}><div class="tile ${c ? 'c-G' : 'unknown'}">${c ? esc(c) : '?'}</div></div>`;
+      return `<span class="slot ${c ? 'known' : ''} ${trap ? 'trap' : ''}" ${trap ? 'title="Tuzak bu harfte"' : ''}>${c ? esc(c) : '?'}${trap ? '<em>tuzak</em>' : ''}</span>`;
     })
     .join('');
-  const trapNote =
-    w.trapPos != null
-      ? `<div class="trap-note">${icon('alert', { size: 14 })} ${w.trapCount > 1 ? `${w.trapCount} tuzak` : 'Tuzak'} gizli kelimeden yalnızca <b>${w.trapPos + 1}. harfte</b> ayrılıyor</div>`
-      : '';
   const letters = [];
   if (k.present.length) letters.push(`<span>Kelimede var: <b>${esc(k.present.join(' '))}</b></span>`);
   if (k.absent.length && !blind) letters.push(`<span>Yok: <b>${esc(k.absent.join(' '))}</b></span>`);
-  if (blind && w.board.length) letters.push('<span>Kör renk: turuncular gri görünüyor</span>');
+  if (blind && w.board.length) letters.push('<span>Kör renk: turuncu çizgiler gri görünüyor</span>');
   el.innerHTML = `
-    <div class="wordcard">
-      <div class="facts">
+    <div class="target-card">
+      <div class="tc-head">
+        <span class="tc-title">${icon('eyeOff', { size: 14 })} Gizli kelime</span>
         <span class="tag primary">Seviye ${w.tier?.level ?? ''}${w.tier?.name ? ` · ${esc(w.tier.name)}` : ''}</span>
-        <span><b>${w.length}</b> harf</span><i class="sep"></i>
-        <span><b>${w.trapCount}</b> tuzak</span><i class="sep"></i>
-        <span><b>${w.forbiddenCount}</b> yasak harf</span>
-        <span class="rows-meter" title="Kullanılan satır"><span class="dots">${dots}</span><span>${used}/${w.rowLimit}</span></span>
       </div>
-      <div class="known">
-        <div class="discs" style="--len:${w.length}">${slots}</div>
-        ${trapNote}
-        ${letters.length ? `<div class="letters-line">${letters.join('')}</div>` : ''}
-      </div>
-      <div class="legend"><span><i style="background:var(--hit)"></i>Tam yer</span><span><i style="background:var(--near)"></i>Kelimede var</span><span><i style="background:var(--miss)"></i>Yok</span></div>
+      <div class="slots" style="--len:${w.length}">${slots}</div>
+      <div class="tc-facts"><span><b>${w.length}</b> harf</span><i class="sep"></i><span><b>${w.trapCount}</b> tuzak</span><i class="sep"></i><span><b>${w.forbiddenCount}</b> yasak harf</span></div>
+      ${
+        w.trapPos != null
+          ? `<div class="trap-note">${icon('alert', { size: 14 })} ${w.trapCount > 1 ? `${w.trapCount} tuzak` : 'Tuzak'} gizli kelimeden yalnızca <b>${w.trapPos + 1}. harfte</b> ayrılıyor</div>`
+          : ''
+      }
+      ${letters.length ? `<div class="letters-line">${letters.join('')}</div>` : ''}
+      <div class="legend"><span><i class="c-G"></i>tam yerinde</span><span><i class="c-Y"></i>kelimede var</span><span><i class="c-X"></i>yok</span></div>
     </div>`;
 }
 
@@ -1104,8 +1110,8 @@ function renderSecret() {
     <section class="secret ${mole ? 'mole' : ''}">
       <div class="secret-head">
         ${icon(mole ? 'ghost' : 'micOff', { size: 20 })}
-        <div class="title">${mole ? 'Köstebeksin' : 'Kaptan sensin'}<small>${
-          mole ? 'Takımı tuzağa çek, ama yakalanma.' : 'Konuşma; sadece sinyal kelimesi gönder.'
+        <div class="title">${mole ? 'Köstebek dosyası' : 'Kaptan dosyası'}<small>${
+          mole ? 'Takımı tuzağa çek, ama yakalanma.' : 'Konuşma; sadece sinyal kartı gönder.'
         }</small></div>
         <button class="icon-btn" data-action="toggle-secret" title="${hide ? 'Göster' : 'Gizle (ekran paylaşırken)'}" aria-label="Gizli bilgiyi gizle/göster">${icon(hide ? 'eye' : 'eyeOff')}</button>
       </div>
@@ -1113,8 +1119,8 @@ function renderSecret() {
         hide
           ? '<div class="hidden-note">Gizli bilgi saklandı.</div>'
           : `<div class="kv">
-              <span class="label">Gizli kelime</span>${miniTiles(info.secret, 'secret-w')}
-              <span class="label">${info.traps.length > 1 ? 'Tuzaklar' : 'Tuzak'}</span><span class="traps">${info.traps.map((t) => miniTiles(t, 'trap-w')).join('')}</span>
+              <span class="label">Gizli kelime</span>${wordChip(info.secret, 'secret')}
+              <span class="label">${info.traps.length > 1 ? 'Tuzaklar' : 'Tuzak'}</span><span class="traps">${info.traps.map((t) => wordChip(t, 'trap')).join('')}</span>
               <span class="label">Yasak harf</span>${forbiddenChips(info.forbidden)}
             </div>
             ${mole ? '' : '<div class="muted small">Yasak harfler sinyalde hiçbir yerde kullanılamaz.</div>'}
@@ -1150,7 +1156,10 @@ function nextCaptainId() {
   return null;
 }
 
-/** Tahta, kaptanın mesaj akışı olarak çizilir: her sinyal bir balon, tahminler altında yanıt. */
+/**
+ * Masa: oynanan her satır bir kelime kartıdır. Kaptanın sinyalleri koyu "kaptan kartı",
+ * tahminler kâğıt kart; tuzak kartı siyah ve damgalı. Kalan satırlar ters çevrilmiş deste.
+ */
 function renderBoard() {
   const st = S.state;
   const w = st.word;
@@ -1160,49 +1169,41 @@ function renderBoard() {
     return;
   }
   const capName = playerName(w.captainId);
-  const captain = playerById(w.captainId);
-  const groups = [];
   let signalNo = 0;
-  w.board.forEach((row, i) => {
-    const animate = i >= S.renderedRows;
-    if (row.type === 'guess' && groups.length) groups[groups.length - 1].replies.push({ row, animate });
-    else groups.push({ row, animate, no: row.type === 'signal' ? ++signalNo : null, replies: row.type === 'guess' ? [{ row, animate }] : [] });
-  });
-  const discs = (row) => [...row.word].map((c, k) => `<div class="tile c-${row.colors[k]}" style="animation-delay:${k * 60}ms">${esc(c)}</div>`).join('');
-  const reply = ({ row, animate }) => {
-    const res = row.result === 'trap' ? 'TUZAK' : row.result === 'correct' ? 'Doğru!' : '';
-    return `<div class="reply ${animate ? 'flip' : ''} ${row.result ? `res-${row.result}` : ''}">
-      <span class="who">${icon('target', { size: 14 })} ${esc(playerName(row.byPlayerId))}</span>
-      <div class="discs">${discs(row)}</div>
-      ${res ? `<span class="res">${res}</span>` : ''}
-    </div>`;
-  };
-  const html = groups.map((g) => {
-    const replies = g.replies.length ? `<div class="replies">${g.replies.map(reply).join('')}</div>` : '';
-    if (g.row.type === 'signal') {
-      return `<article class="msg signal ${g.animate ? 'flip' : ''}">
-        <div class="msg-head">${avatar(captain, { small: true })}<b>${esc(capName)}</b><span>${g.no}. sinyal</span></div>
-        <div class="bubble"><div class="discs" style="--len:${w.length}">${discs(g.row)}</div></div>
-        ${replies}
+  const cards = w.board.map((row, i) => {
+    const deal = i >= S.renderedRows ? 'deal' : '';
+    if (row.type === 'signal') {
+      signalNo += 1;
+      return `<article class="wcard signal ${deal}">
+        <header><span>${signalNo}. sinyal</span><span>${icon('micOff', { size: 12 })} ${esc(capName)}</span></header>
+        <div class="wc-word" style="--len:${w.length}">${lettersHtml(row.word, row.colors)}</div>
       </article>`;
     }
-    if (g.row.type === 'empty') {
-      return `<article class="msg empty"><div class="bubble">${icon('clock', { size: 16 })} Süre doldu, sinyal gelmedi (boş satır)</div>${replies}</article>`;
+    if (row.type === 'empty') {
+      return `<article class="wcard empty ${deal}">
+        <header><span>sinyal yok</span></header>
+        <div class="wc-empty">${icon('clock', { size: 18 })} süre doldu</div>
+      </article>`;
     }
-    return `<article class="msg">${replies}</article>`;
+    const stamp = row.result === 'trap' ? '<span class="stamp">TUZAK</span>' : row.result === 'correct' ? '<span class="stamp ok">BULUNDU</span>' : '';
+    return `<article class="wcard guess ${row.result ? `res-${row.result}` : ''} ${deal}">
+      <header><span>tahmin</span><span>${esc(playerName(row.byPlayerId))}</span></header>
+      <div class="wc-word" style="--len:${w.length}">${lettersHtml(row.word, row.colors)}</div>
+      ${stamp}
+    </article>`;
   });
 
-  let wait = '';
   if (st.phase === 'SIGNAL' || st.phase === 'WORD_SETUP') {
-    const who = isCaptain() ? 'Sinyalini bekliyoruz' : `${esc(capName)} sinyal seçiyor`;
-    wait = `<div class="feed-wait">${avatar(captain, { small: true })}<span>${st.phase === 'WORD_SETUP' ? 'İlk sinyal birazdan…' : who}</span><span class="typing-dots"><i></i><i></i><i></i></span></div>`;
-  } else if (!w.board.length) {
-    wait = '<div class="feed-wait">Henüz sinyal yok.</div>';
+    const text = st.phase === 'WORD_SETUP' ? 'İlk sinyal birazdan' : isCaptain() ? 'Sinyalini bekliyoruz' : `${esc(capName)} sinyal seçiyor`;
+    cards.push(`<div class="wcard waiting"><span>${text}</span><span class="typing-dots"><i></i><i></i><i></i></span></div>`);
   }
-  if (w.rowsRemaining === 1 && WORD_PHASES.has(st.phase)) {
-    wait += `<div class="notice danger">${icon('target', { size: 16 })}<div>Son satır: sadece tahmin yapılabilir, pas yok.</div></div>`;
+  const left = w.rowsRemaining;
+  if (left > 0 && st.phase !== 'REVEAL' && st.phase !== 'MOLE_VOTE') {
+    cards.push(`<div class="wcard deck ${left === 1 ? 'last' : ''}" title="Kalan satır hakkı">
+      <b>${left}</b><span>${left === 1 ? 'son kart · sadece tahmin' : 'kart kaldı'}</span>
+    </div>`);
   }
-  el.innerHTML = html.join('') + wait;
+  el.innerHTML = `<div class="cards">${cards.join('')}</div>`;
   S.renderedRows = w.board.length;
 }
 
@@ -1213,7 +1214,7 @@ function proposalHtml(p, st, canAct) {
   const pct = Math.min(100, (p.approvals.length / Math.max(1, need)) * 100);
   const what =
     p.kind === 'guess'
-      ? miniTiles(p.word, 'plain sm')
+      ? wordChip(p.word)
       : p.kind === 'pass'
         ? `${icon('skip', { size: 16 })} Pas <span class="muted small">(satır harcamaz)</span>`
         : `${icon('coins', { size: 16 })} Kumbaradan +1 satır <span class="muted small">(oybirliği)</span>`;
@@ -1243,17 +1244,25 @@ function renderPanel() {
     const lastRow = w.rowsRemaining <= 1;
     const left = w.maxGuesses - w.guessesThisDiscussion;
     html = `
-      <div class="panel-head"><h3 class="h2">Öneriler</h3><span class="muted small">Bu turda ${left} tahmin hakkı</span></div>
+      <div class="panel-head"><h3 class="h2">${w.guesserCount === 1 ? 'Hamleler' : 'Öneriler'}</h3><span class="muted small">Bu turda ${left} tahmin hakkı</span></div>
       ${
         w.proposals.length
           ? `<div class="proposals">${w.proposals.map((p) => proposalHtml(p, st, !cap && !st.paused)).join('')}</div>`
-          : `<div class="empty-state">${cap ? 'Henüz öneri yok.' : 'Henüz öneri yok. Klavyeden bir kelime yazıp önerebilirsin.'}</div>`
+          : `<div class="empty-state">${
+              w.guesserCount === 1
+                ? cap
+                  ? 'Tahminci kartını seçiyor.'
+                  : 'Tahminin onay beklemeden gönderilir. İstersen pas geçip yeni sinyal isteyebilirsin.'
+                : cap
+                  ? 'Henüz öneri yok.'
+                  : 'Henüz öneri yok. Bir kelime yazıp önerebilirsin.'
+            }</div>`
       }
       ${
         cap
           ? ''
           : `<div class="panel-actions">
-              <button class="btn sm" data-action="pass" ${lastRow || st.paused ? 'disabled' : ''} title="${lastRow ? 'Son satırda pas yok' : 'Yeni sinyal iste (satır harcamaz)'}">${icon('skip', { size: 16 })} Pas öner</button>
+              <button class="btn sm" data-action="pass" ${lastRow || st.paused ? 'disabled' : ''} title="${lastRow ? 'Son satırda pas yok' : 'Yeni sinyal iste (satır harcamaz)'}">${icon('skip', { size: 16 })} ${w.guesserCount === 1 ? 'Pas geç' : 'Pas öner'}</button>
               <button class="btn sm" data-action="bank" ${st.run.bank <= 0 || st.paused ? 'disabled' : ''} title="Herkes onaylarsa bu kelimeye +1 satır">${icon('coins', { size: 16 })} +1 satır (${st.run.bank})</button>
             </div>`
       }`;
@@ -1300,8 +1309,8 @@ function revealHtml(st) {
       <div><div class="result-banner">${title}</div>${gains.length ? `<div class="gains">${gains.join('')}</div>` : ''}</div>
     </div>
     <div class="kv">
-      <span class="label">Gizli kelime</span>${miniTiles(r.secret, 'secret-w')}
-      <span class="label">${r.traps.length > 1 ? 'Tuzaklar' : 'Tuzak'}</span><span class="traps">${r.traps.map((t) => miniTiles(t, 'trap-w')).join('')}</span>
+      <span class="label">Gizli kelime</span>${wordChip(r.secret, 'secret')}
+      <span class="label">${r.traps.length > 1 ? 'Tuzaklar' : 'Tuzak'}</span><span class="traps">${r.traps.map((t) => wordChip(t, 'trap')).join('')}</span>
       <span class="label">Yasak harf</span>${forbiddenChips(r.forbidden)}
     </div>
     ${mole}
@@ -1349,7 +1358,10 @@ function renderCompose() {
   let btn;
   if (cap && st.phase === 'SIGNAL') btn = `<button class="btn primary" data-action="compose">${icon('send', { size: 16 })} Sinyal yaz${draft}</button>`;
   else if (cap) btn = `<button class="btn ghost" data-action="compose">${icon('send', { size: 16 })} Sıradaki sinyali hazırla${draft}</button>`;
-  else if (st.phase === 'DISCUSSION') btn = `<button class="btn primary" data-action="compose">${icon('target', { size: 16 })} Tahmin öner${draft}</button>`;
+  else if (st.phase === 'DISCUSSION') {
+    const label = st.word.guesserCount === 1 ? 'Tahmin et' : 'Tahmin öner';
+    btn = `<button class="btn primary" data-action="compose">${icon('target', { size: 16 })} ${label}${draft}</button>`;
+  }
   else btn = `<button class="btn ghost" data-action="compose">${icon('target', { size: 16 })} Taslak yaz${draft}</button>`;
   el.innerHTML = `<div class="composer-bar">${btn}</div>`;
 }
@@ -1366,11 +1378,10 @@ function renderTyped() {
   const cap = isCaptain();
   const pv = cap && S.preview && S.preview.word === S.typed ? S.preview : null;
   const letters = [...S.typed];
-  const tiles = Array.from({ length: len }, (_, i) => {
-    const c = letters[i] ?? '';
-    const color = pv?.colors ? `c-${pv.colors[i]}` : c ? 'filled' : '';
-    return `<div class="tile ${color}">${esc(c)}</div>`;
-  }).join('');
+  const card = `<div class="wcard compose ${cap ? 'signal' : 'guess'}">
+    <header><span>${cap ? 'sinyalin' : 'tahminin'}</span><span>${letters.length}/${len}</span></header>
+    <div class="wc-word" style="--len:${len}">${lettersHtml(S.typed, pv?.colors ?? null, len)}</div>
+  </div>`;
   let msg = '';
   let cls = '';
   if (cap) {
@@ -1382,11 +1393,10 @@ function renderTyped() {
       cls = 'ok';
     } else msg = 'Önizleme: renkler gönderilince herkese böyle görünür';
   } else {
-    msg = st.phase === 'DISCUSSION' ? 'Kelimeyi yaz, ÖNER ile tahmin önerisi yap' : 'Taslak yazabilirsin; öneriler tartışmada açılır';
+    const solo = st.word.guesserCount === 1;
+    msg = st.phase === 'DISCUSSION' ? (solo ? 'Kelimeyi yaz, TAHMİN ile gönder' : 'Kelimeyi yaz, ÖNER ile tahmin önerisi yap') : 'Taslak yazabilirsin; tahminler tartışmada açılır';
   }
-  el.innerHTML = `
-    <div class="discs" style="--len:${len}">${tiles}</div>
-    <div class="msg ${cls}">${esc(msg)}</div>`;
+  el.innerHTML = `${card}<div class="msg ${cls}">${esc(msg)}</div>`;
   // GÖNDER/ÖNER tuşu, gönderilebilir durumdayken vurgulanır.
   const enter = document.querySelector('.key[data-key="ENTER"]');
   if (enter) enter.classList.toggle('go', canSubmitNow());
@@ -1418,7 +1428,10 @@ function renderKeyboard() {
     (row) =>
       `<div class="krow">${row
         .map((k) => {
-          if (k === 'ENTER') return `<button class="key wide ${canSubmitNow() ? 'go' : ''}" data-action="key" data-key="ENTER">${cap ? 'GÖNDER' : 'ÖNER'}</button>`;
+          if (k === 'ENTER') {
+            const label = cap ? 'GÖNDER' : S.state.word.guesserCount === 1 ? 'TAHMİN' : 'ÖNER';
+            return `<button class="key wide ${canSubmitNow() ? 'go' : ''}" data-action="key" data-key="ENTER">${label}</button>`;
+          }
           if (k === 'BACK') return `<button class="key wide" data-action="key" data-key="BACK" aria-label="Sil">${icon('backspace', { size: 20 })}</button>`;
           const cls = forbidden.has(k) ? 'forbidden' : colors[k] ? `c-${colors[k]}` : '';
           return `<button class="key ${cls}" data-action="key" data-key="${k}">${k}</button>`;
@@ -1499,7 +1512,7 @@ function updateEnd() {
             `${w.rowsUsed}/${w.rowLimit} satır`,
             w.chaosCard ? CHAOS_NAME[w.chaosCard] : '',
           ].filter(Boolean);
-          return `<li><span class="idx">${w.wordIndex}</span><span class="w">${esc(w.secret)}</span>
+          return `<li><span class="idx">${w.wordIndex}</span><span class="w">${wordChip(w.secret, w.result === 'solved' ? 'secret' : w.result === 'cancelled' ? '' : 'trap')}</span>
             <span class="tag ${res.cls}">${res.label}${w.star ? ` ${icon('star', { size: 12, fill: true })}` : ''}</span>
             <span class="sub">${esc(meta.join(' · '))}</span></li>`;
         })
