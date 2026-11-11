@@ -58,6 +58,8 @@ const ERRORS = {
   KICKED: () => 'Bu odadan çıkarıldın',
   SERVER_FULL: () => 'Sunucu şu an dolu, biraz sonra dene',
   SERVER_ERROR: () => 'Sunucu hatası',
+  INVALID_REACTION: () => 'Geçersiz tepki',
+  CAPTAIN_SILENT: () => 'Kaptan kelime sürerken tepki veremez',
 };
 
 // ───────────────────────── yardımcılar ─────────────────────────
@@ -208,6 +210,10 @@ const SOUND = {
   tick: () => tone([1100], { dur: 0.04, vol: 0.03 }),
   end: () => tone([392, 330, 262], { dur: 0.3, gap: 0.16 }),
   record: () => tone([523, 659, 784, 1047, 1319], { dur: 0.22, gap: 0.1 }),
+  bonus: () => tone([1047, 1319, 1568], { dur: 0.12, gap: 0.06, type: 'triangle' }),
+  golden: () => tone([784, 988, 1175, 1568], { dur: 0.16, gap: 0.08, type: 'triangle' }),
+  chaos: () => tone([311, 466, 311], { dur: 0.14, gap: 0.1, type: 'square', vol: 0.04 }),
+  lastLife: () => tone([220, 208, 196], { dur: 0.35, gap: 0.2, type: 'sawtooth', vol: 0.04 }),
 };
 
 // ───────────────────────── bildirimler ─────────────────────────
@@ -220,6 +226,93 @@ function toast(text, kind = '') {
   box.appendChild(el);
   while (box.children.length > 3) box.firstChild.remove();
   setTimeout(() => el.remove(), 2800);
+}
+
+// ───────────────────────── büyük anlar (efektler) ─────────────────────────
+
+const fxLayer = () => document.getElementById('fx');
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/** Ekranın ortasında kısa, büyük bir duyuru. */
+function splash(title, sub = '', kind = '') {
+  const el = document.createElement('div');
+  el.className = `splash ${kind}`;
+  el.innerHTML = `<b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}`;
+  fxLayer().appendChild(el);
+  setTimeout(() => el.remove(), 1900);
+}
+
+function confetti() {
+  if (reducedMotion()) return;
+  const colors = ['var(--hit)', 'var(--near)', 'var(--gold)', 'var(--green)', '#ffffff'];
+  for (let i = 0; i < 70; i++) {
+    const p = document.createElement('i');
+    p.className = 'confetti';
+    p.style.left = `${Math.random() * 100}vw`;
+    p.style.background = colors[i % colors.length];
+    p.style.setProperty('--dx', `${(Math.random() - 0.5) * 160}px`);
+    p.style.setProperty('--rot', `${Math.random() * 720 - 360}deg`);
+    p.style.animationDelay = `${Math.random() * 0.25}s`;
+    p.style.animationDuration = `${1.2 + Math.random() * 0.9}s`;
+    fxLayer().appendChild(p);
+    setTimeout(() => p.remove(), 2600);
+  }
+}
+
+function shake() {
+  const flash = document.createElement('div');
+  flash.className = 'flash-red';
+  fxLayer().appendChild(flash);
+  setTimeout(() => flash.remove(), 700);
+  if (reducedMotion()) return;
+  app.classList.remove('shake');
+  void app.offsetWidth; // animasyonu yeniden başlat
+  app.classList.add('shake');
+  navigator.vibrate?.(200);
+}
+
+/** Tepki emojisi, gönderen oyuncunun masadaki yerinden yukarı uçar. */
+function floatReaction(playerId, emoji) {
+  const seat = document.querySelector(`#g-table [data-pid="${CSS.escape(playerId)}"]`);
+  const box = seat?.getBoundingClientRect();
+  const el = document.createElement('span');
+  el.className = 'float-emoji';
+  el.textContent = emoji;
+  el.style.left = `${box ? box.left + box.width / 2 : window.innerWidth / 2}px`;
+  el.style.top = `${box ? box.top : window.innerHeight / 2}px`;
+  fxLayer().appendChild(el);
+  setTimeout(() => el.remove(), 1600);
+}
+
+function onWordEnd(ev) {
+  const extras = [];
+  if (ev.lightning) extras.push('Yıldırım +1 kumbara');
+  if (ev.streakBonus) extras.push(`${ev.streak}'li seri +1 kumbara`);
+  else if (ev.streak >= 2) extras.push(`${ev.streak}'li seri`);
+  if (ev.goldenLife) extras.push('Altın: +1 can');
+  else if (ev.golden) extras.push('Altın: +2 kumbara');
+  if (ev.result === 'solved') {
+    SOUND.solved();
+    if (ev.lightning || ev.streakBonus || ev.golden) setTimeout(SOUND.bonus, 450);
+    confetti();
+    splash(ev.lightning ? 'YILDIRIM!' : 'BULUNDU!', extras.join(' · '), 'good');
+  } else if (ev.result === 'trap') {
+    SOUND.trap();
+    shake();
+    splash('TUZAK!', ev.streakLost >= 2 ? `${ev.streakLost}'li seri bozuldu · −1 can` : '−1 can', 'bad');
+  } else if (ev.result === 'rows') {
+    SOUND.end();
+    shake();
+    splash('SATIRLAR BİTTİ', '−1 can', 'bad');
+  } else if (ev.result === 'cancelled') {
+    toast('Kaptan dönmedi; kelime iptal edildi (can kaybı yok)');
+  }
+  if (ev.lifeLost && ev.lives === 1) {
+    setTimeout(() => {
+      SOUND.lastLife();
+      splash('SON CAN!', 'Bir hata daha ve oyun biter', 'bad');
+    }, 1900);
+  }
 }
 
 // ───────────────────────── bağlantı ─────────────────────────
@@ -441,7 +534,13 @@ function handleEvent(ev, st) {
         toast('Kaptan sensin — konuşmak yok', 'good');
         navigator.vibrate?.([120, 60, 120]);
       } else toast(`${ev.wordIndex}. kelime · Kaptan: ${playerName(ev.captainId)}`);
-      if (ev.chaosCard) toast(`Kaos kartı: ${CHAOS[ev.chaosCard].name}`);
+      if (ev.golden) {
+        SOUND.golden();
+        splash('ALTIN KELİME', 'Bir satır eksik · çözerseniz +1 can', 'gold');
+      } else if (ev.chaosCard) {
+        SOUND.chaos();
+        splash('KAOS KARTI', CHAOS[ev.chaosCard].name, 'chaos');
+      }
       break;
     case 'signal':
       SOUND.signal();
@@ -467,10 +566,10 @@ function handleEvent(ev, st) {
       toast('Kumbaradan 1 satır alındı', 'good');
       break;
     case 'word_end':
-      if (ev.result === 'solved') SOUND.solved();
-      else if (ev.result === 'trap') SOUND.trap();
-      else if (ev.result === 'rows') SOUND.end();
-      else if (ev.result === 'cancelled') toast('Kaptan dönmedi; kelime iptal edildi (can kaybı yok)');
+      onWordEnd(ev);
+      break;
+    case 'react':
+      floatReaction(ev.playerId, ev.emoji);
       break;
     case 'mole_result':
       toast(ev.caught ? 'Köstebek yakalandı! +1 can' : 'Köstebek kaçtı', ev.caught ? 'good' : 'err');
@@ -547,6 +646,7 @@ function render() {
     app.querySelectorAll('[data-memo]').forEach(memoizeHTML);
     MOUNT[screen]?.();
   }
+  if (screen !== 'game') document.body.classList.remove('last-life');
   UPDATE[screen]?.();
   renderConn();
   updateTitle();
@@ -630,6 +730,8 @@ const RULES = `
     <li>Çözülen kelimede artan satırlar <b>kumbaraya</b> gider; gerekince oybirliğiyle kumbaradan satır çekin.</li>
     <li>En fazla 1 sinyalle çözülen kelime yıldız kazandırır. Her 5 çözümde +1 can. Canlar bitene kadar devam!</li>
     <li>4. kelimeden itibaren her 3 kelimede bir <b>kaos kartı</b>: kategori kilidi, kör renk, hızlı tur, köstebek.</li>
+    <li><b>Bonuslar:</b> üst üste her 3 çözüm (seri) ve sinyalden sonraki 20 saniyede çözüm (yıldırım) kumbaraya +1 satır kazandırır. Ara sıra gelen <b>altın kelime</b> bir satır eksiktir ama çözülürse +1 can verir.</li>
+    <li>Tahminciler masadan tepki gönderebilir; kaptan kelime sürerken tepki de veremez.</li>
   </ul>
 </details>`;
 
@@ -832,6 +934,7 @@ function playerRow(p, i, total, editable) {
 // ── oyun ──
 
 function updateGame() {
+  document.body.classList.toggle('last-life', S.state.run?.lives === 1);
   renderTop();
   renderTurn();
   renderTable();
@@ -857,6 +960,7 @@ function renderTop() {
       <span class="pill gold" title="Kumbara (yedek satır)">${icon('coins', { size: 16 })}${run.bank}</span>
       <span class="pill" title="Çözülen kelime">${icon('check', { size: 16 })}${run.score}</span>
       <span class="pill gold" title="Yıldız">${icon('star', { size: 16, fill: true })}${run.stars}</span>
+      ${run.streak >= 2 ? `<span class="pill streak" title="Üst üste çözülen kelime">${icon('flame', { size: 16, fill: true })}${run.streak}</span>` : ''}
     </div>
     <button class="icon-btn" data-action="mute" title="${S.muted ? 'Sesi aç' : 'Sesi kapat'}" aria-label="Ses">${icon(S.muted ? 'mute' : 'volume')}</button>`;
 }
@@ -875,7 +979,7 @@ function turnInfo() {
   const w = st.word;
   const cap = isCaptain();
   const capName = cap ? 'sen' : playerName(w.captainId);
-  const kicker = `${st.run.wordIndex}. kelime · Kaptan: ${capName}`;
+  const kicker = `${st.run.wordIndex}. kelime${w.golden ? ' · ALTIN' : ''} · Kaptan: ${capName}`;
   switch (st.phase) {
     case 'WORD_SETUP':
       if (cap) return { kicker, icon: 'micOff', title: 'Kaptan sensin', sub: 'Gizli kelimeyi ve tuzakları incele. Bu kelime boyunca konuşma.', mine: true };
@@ -918,8 +1022,11 @@ function turnInfo() {
         mine: !voted,
       };
     }
-    case 'REVEAL':
-      return { kicker, icon: 'mic', title: 'Hesaplaşma', sub: `Kaptan ${capName === 'sen' ? 'sensin, artık konuşabilirsin' : `${capName} artık konuşabilir`}: sinyalleri açıklama zamanı.` };
+    case 'REVEAL': {
+      const r = st.reveal;
+      const t = { solved: ['check2', r?.lightning ? 'Yıldırım gibi!' : 'Bulundu!'], trap: ['alert', 'Tuzağa düştünüz'], rows: ['clock', 'Satırlar bitti'] }[r?.result] ?? ['check2', 'Kelime bitti'];
+      return { kicker, icon: t[0], title: t[1], sub: st.run.lives > 0 ? 'Sıradaki kelime birazdan…' : 'Canlar bitti, sonuçlar geliyor…' };
+    }
     default:
       return { kicker, icon: 'signal', title: '', sub: '' };
   }
@@ -932,10 +1039,12 @@ function renderTurn() {
   const info = turnInfo();
   const rem = remainingMs();
   const secs = rem == null ? '' : Math.ceil(rem / 1000);
-  const low = rem != null && rem < 10_000 && !st.paused;
+  const timed = st.phase === 'SIGNAL' || st.phase === 'DISCUSSION' || st.phase === 'MOLE_VOTE';
+  const low = timed && rem != null && rem < 10_000 && !st.paused;
   const pct = rem != null && st.phaseDuration ? Math.max(0, Math.min(100, (rem / st.phaseDuration) * 100)) : 0;
   const step = STEP_OF[st.phase] ?? 0;
   const steps = ['Hazırlık', 'Sinyal', 'Tartışma', st.phase === 'MOLE_VOTE' ? 'Oylama' : 'Sonuç'];
+  const urgent = rem != null && rem < 10_000 && !st.paused && (st.phase === 'SIGNAL' || st.phase === 'DISCUSSION');
 
   let pause = '';
   if (st.paused) {
@@ -949,7 +1058,7 @@ function renderTurn() {
     pause = `<div class="notice pause-note">${icon('pause', { size: 16 })}<div>${esc(parts.join(' '))}</div></div>`;
   }
 
-  el.className = `turn ${info.mine && !st.paused ? 'mine' : ''} ${st.paused ? 'paused' : ''}`;
+  el.className = `turn ${info.mine && !st.paused ? 'mine' : ''} ${st.paused ? 'paused' : ''} ${urgent ? 'urgent' : ''}`;
   el.dataset.phase = st.phase;
   el.innerHTML = `
     <ol class="steps">${steps.map((s, i) => `<li class="${i < step ? 'done' : i === step ? 'current' : ''}">${s}</li>`).join('')}</ol>
@@ -1027,7 +1136,8 @@ function renderWord() {
   if (k.absent.length && !blind) letters.push(`<span>Yok: <b>${esc(k.absent.join(' '))}</b></span>`);
   if (blind && w.board.length) letters.push('<span>Kör renk: turuncu çizgiler gri görünüyor</span>');
   el.innerHTML = `
-    <div class="target-card">
+    <div class="target-card ${w.golden ? 'golden' : ''}">
+      ${w.golden ? `<div class="golden-banner">${icon('star', { size: 14, fill: true })} Altın kelime · bir satır eksik · çözerseniz +1 can</div>` : ''}
       <div class="tc-head">
         <span class="tc-title">${icon('eyeOff', { size: 14 })} Gizli kelime</span>
         <span class="tag primary">Seviye ${w.tier?.level ?? ''}${w.tier?.name ? ` · ${esc(w.tier.name)}` : ''}</span>
@@ -1042,6 +1152,14 @@ function renderWord() {
       ${letters.length ? `<div class="letters-line">${letters.join('')}</div>` : ''}
       <div class="legend"><span><i class="c-G"></i>tam yerinde</span><span><i class="c-Y"></i>kelimede var</span><span><i class="c-X"></i>yok</span></div>
     </div>`;
+}
+
+/** Tepki düğmeleri; kaptan kelime sürerken göremez (ipucu verilmesin). */
+function reactionBar() {
+  const st = S.state;
+  const list = st.reactions ?? [];
+  if (!list.length || (isCaptain() && WORD_PHASES.has(st.phase))) return '';
+  return `<div class="reactions">${list.map((e) => `<button class="react-btn" data-action="react" data-emoji="${esc(e)}" aria-label="Tepki ${esc(e)}">${esc(e)}</button>`).join('')}</div>`;
 }
 
 /** Masa: kaptan ortada, tahminciler iki yanında; herkesin altında o an desteklediği öneri. */
@@ -1074,7 +1192,7 @@ function renderTable() {
     if (p.id === st.hostId) badges.push(`<span class="b host" title="Oda sahibi">${icon('crown', { size: 11 })}</span>`);
     if (p.id === next) badges.push(`<span class="b next" title="Sıradaki kaptan">${icon('skip', { size: 10 })}</span>`);
     if (!p.connected) badges.push(`<span class="b" title="Bağlantı yok">${icon('wifiOff', { size: 10 })}</span>`);
-    return `<div class="seat ${p.connected ? '' : 'off'}">
+    return `<div class="seat ${p.connected ? '' : 'off'}" data-pid="${p.id}">
       <div class="ava-wrap">${avatar(p)}<span class="badges">${badges.join('')}</span></div>
       <div class="sname ${p.id === S.me.playerId ? 'me' : ''}">${p.id === S.me.playerId ? 'Sen' : esc(p.name)}</div>
       <div class="vote ${vote?.on ? 'on' : ''}">${vote ? esc(vote.text) : ''}</div>
@@ -1086,13 +1204,13 @@ function renderTable() {
   const capHost = captain.id === st.hostId ? `<span class="badges"><span class="b host" title="Oda sahibi">${icon('crown', { size: 11 })}</span></span>` : '';
   el.innerHTML = `<div class="table-card"><div class="seats">
     ${others.slice(0, half).map(seat).join('')}
-    <div class="seat captain ${captain.connected === false ? 'off' : ''}">
+    <div class="seat captain ${captain.connected === false ? 'off' : ''}" data-pid="${captain.id}">
       <div class="ava-wrap">${avatar(captain)}${capHost}</div>
       <div class="sname ${captain.id === S.me.playerId ? 'me' : ''}">${captain.id === S.me.playerId ? 'Sen' : esc(captain.name)}</div>
       <div class="role">${icon('micOff', { size: 12 })} Kaptan</div>
     </div>
     ${others.slice(half).map(seat).join('')}
-  </div></div>`;
+  </div>${reactionBar()}</div>`;
 }
 
 function renderSecret() {
@@ -1293,6 +1411,9 @@ function revealHtml(st) {
   const gains = [];
   if (r.star) gains.push(`<span class="tag primary">${icon('star', { size: 12, fill: true })} +1 yıldız</span>`);
   if (r.bankGained) gains.push(`<span class="tag">${icon('coins', { size: 12 })} +${r.bankGained} kumbara</span>`);
+  if (r.lightning) gains.push(`<span class="tag primary">${icon('zap', { size: 12, fill: true })} yıldırım</span>`);
+  if (r.streak >= 2) gains.push(`<span class="tag streak">${icon('flame', { size: 12, fill: true })} ${r.streak}'li seri</span>`);
+  if (r.goldenLife) gains.push(`<span class="tag gold">${icon('star', { size: 12, fill: true })} altın: +1 can</span>`);
   if (r.lifeGained) gains.push(`<span class="tag ok">${icon('heart', { size: 12, fill: true })} +1 can</span>`);
   if (r.lifeLost) gains.push(`<span class="tag danger">${icon('heart', { size: 12, fill: true })} −1 can</span>`);
   let mole = '';
@@ -1487,7 +1608,10 @@ function updateEnd() {
       <div class="trophy">${icon('trophy', { size: 28 })}</div>
       <div class="label">Çözülen kelime</div>
       <div class="score-big">${s.score}</div>
-      <span class="pill gold">${icon('star', { size: 16, fill: true })} ${s.stars} yıldız</span>
+      <span class="row" style="justify-content:center;flex-wrap:wrap">
+        <span class="pill gold">${icon('star', { size: 16, fill: true })} ${s.stars} yıldız</span>
+        ${s.bestStreak >= 2 ? `<span class="pill streak">${icon('flame', { size: 16, fill: true })} en uzun seri ${s.bestStreak}</span>` : ''}
+      </span>
       <div class="record ${rec?.isNewRecord ? 'new' : ''}">${esc(recordLine)}</div>
     </section>
     ${
@@ -1719,6 +1843,9 @@ document.addEventListener('click', (e) => {
     case 'compose':
       S.composer = !S.composer;
       render();
+      break;
+    case 'react':
+      send({ type: 'react', emoji: btn.dataset.emoji });
       break;
     case 'approve':
       send({ type: 'approve', proposalId: id });

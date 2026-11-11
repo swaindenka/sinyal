@@ -72,7 +72,14 @@ export const PUZZLES = [
 
 export function testConfig(overrides = {}) {
   const config = loadConfig({ dev: false });
-  return { ...config, ...overrides, chaos: { ...config.chaos, ...(overrides.chaos || {}) } };
+  // Testlerde bonuslar varsayılan kapalı; ilgili testler açıkça açar.
+  const quiet = { streakBankBonus: 0, lightningBankBonus: 0, goldenChance: 0 };
+  return {
+    ...config,
+    ...overrides,
+    chaos: { ...config.chaos, ...(overrides.chaos || {}) },
+    excitement: { ...config.excitement, ...quiet, ...(overrides.excitement || {}) },
+  };
 }
 
 /** Oyuncuları katılmış, takım adı belirlenmiş bir oda kurar. */

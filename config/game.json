@@ -10,7 +10,7 @@
   "discussionSeconds": 90,
   "maxGuessesPerDiscussion": 2,
   "moleVoteSeconds": 30,
-  "revealSeconds": 30,
+  "revealSeconds": 6,
   "captainReconnectSeconds": 30,
   "playerReconnectSeconds": 60,
   "hostGraceSeconds": 10,
@@ -19,6 +19,17 @@
   "starMaxSignals": 1,
   "commonWordLimit": 12000,
   "requireApprovedPuzzles": false,
+  "excitement": {
+    "streakEvery": 3,
+    "streakBankBonus": 1,
+    "lightningSeconds": 20,
+    "lightningBankBonus": 1,
+    "goldenStartWord": 3,
+    "goldenChance": 0.2,
+    "goldenRowPenalty": 1,
+    "reactions": ["👏", "🔥", "😮", "😂", "🤦", "💀"],
+    "reactionRateLimitMs": 800
+  },
   "chaos": {
     "startWord": 4,
     "every": 3,
