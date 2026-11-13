@@ -734,7 +734,7 @@ function renderSignals() {
     if (sig) {
       const old = i < r.signals.length - 1 ? ' old' : '';
       out.push(
-        `<div class="sig filled${old}">${icon('signal', { size: 54, cls: 'wm' })}<span class="n">${i + 1}</span><span class="pts">${pts}</span><span class="w${sig.word.length > 8 ? ' long' : ''}">${esc(sig.word)}</span>${sig.auto ? '<span class="auto">süre doldu</span>' : ''}</div>`,
+        `<div class="sig filled${old}">${icon('signal', { size: 54, cls: 'wm' })}<span class="n">${i + 1}</span><span class="pts">${pts}</span><span class="w${[...sig.word].length >= 10 ? ' xlong' : [...sig.word].length >= 8 ? ' long' : ''}">${esc(sig.word)}</span>${sig.auto ? '<span class="auto">süre doldu</span>' : ''}</div>`,
       );
     } else {
       const next = i === r.signals.length && s.phase === 'SIGNAL' ? ' next' : '';
@@ -820,7 +820,7 @@ function renderDock() {
     const cards = hand
       .map(
         (w) =>
-          `<button class="hcard${S.sel === w ? ' sel' : ''}" data-action="card" data-w="${esc(w)}" ${signalPhase ? '' : 'disabled'} aria-pressed="${S.sel === w}">${icon('signal', { size: 40, cls: 'wm' })}<span>${esc(w)}</span></button>`,
+          `<button class="hcard${S.sel === w ? ' sel' : ''}" data-action="card" data-w="${esc(w)}" ${signalPhase ? '' : 'disabled'} aria-pressed="${S.sel === w}">${icon('signal', { size: 40, cls: 'wm' })}<span class="${[...w].length >= 10 ? 'l10' : [...w].length >= 9 ? 'l9' : ''}">${esc(w)}</span></button>`,
       )
       .join('');
     const actions = signalPhase

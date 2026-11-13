@@ -1238,7 +1238,7 @@ button:disabled {
   display: grid;
   align-content: center;
   justify-items: center;
-  padding: 8px 6px;
+  padding: 8px 4px;
   text-align: center;
 }
 
@@ -1311,17 +1311,34 @@ button:disabled {
 
 .sig .w {
   position: relative;
+  max-width: 100%;
   font-family: var(--font-card);
   font-weight: 700;
   font-size: 22px;
   letter-spacing: 0.04em;
   line-height: 1.1;
   margin-top: 8px;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
+/* Kelimeler bölünmesin: uzun sinyaller küçülür. */
 .sig .w.long {
-  font-size: 17px;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+
+.sig .w.xlong {
+  font-size: 14px;
+  letter-spacing: 0.01em;
+}
+
+@media (min-width: 640px) {
+  .sig .w.long {
+    font-size: 20px;
+  }
+  .sig .w.xlong {
+    font-size: 18px;
+  }
 }
 
 .sig .auto {
@@ -1663,6 +1680,23 @@ button.tile:disabled {
 
 .hcard span {
   position: relative;
+  white-space: nowrap;
+}
+
+.hcard .l9 {
+  font-size: 15px;
+}
+
+.hcard .l10 {
+  font-size: 14px;
+  letter-spacing: 0.01em;
+}
+
+@media (min-width: 640px) {
+  .hcard .l9,
+  .hcard .l10 {
+    font-size: 15px;
+  }
 }
 
 .hand.has-sel .hcard:not(.sel) {
