@@ -1,0 +1,58 @@
+{
+  "categories": {
+    "hayvan": {
+      "label": "Hayvanlar",
+      "words": ["KEDİ", "KÖPEK", "ASLAN", "KAPLAN", "FİL", "ZÜRAFA", "MAYMUN", "AYI", "KURT", "TİLKİ", "TAVŞAN", "SİNCAP", "KARTAL", "BAYKUŞ", "PAPAĞAN", "PENGUEN", "BALİNA", "YUNUS", "AHTAPOT", "YENGEÇ", "YILAN", "TİMSAH", "KURBAĞA", "ARI", "KELEBEK", "KARINCA", "ÖRÜMCEK", "AT", "İNEK", "KOYUN", "KEÇİ", "TAVUK", "HOROZ", "ÖRDEK", "DEVE", "ZEBRA", "KANGURU", "FARE", "YARASA", "MARTI", "LEYLEK", "SALYANGOZ", "KİRPİ", "GERGEDAN", "PANDA", "GORİL", "KOALA", "FLAMİNGO", "SİVRİSİNEK", "ÇEKİRGE", "AKREP", "KAPLUMBAĞA"]
+    },
+    "yiyecek": {
+      "label": "Yiyecek ve içecek",
+      "words": ["ELMA", "ARMUT", "MUZ", "ÇİLEK", "KARPUZ", "KİRAZ", "LİMON", "PORTAKAL", "ÜZÜM", "DOMATES", "PATATES", "SOĞAN", "HAVUÇ", "BİBER", "PATLICAN", "SARIMSAK", "EKMEK", "PEYNİR", "ZEYTİN", "BAL", "YUMURTA", "ÇORBA", "PİLAV", "MAKARNA", "PİZZA", "HAMBURGER", "KEBAP", "DÖNER", "BAKLAVA", "DONDURMA", "ÇİKOLATA", "PASTA", "SİMİT", "BÖREK", "KÖFTE", "LAHMACUN", "MANTI", "KAHVE", "ÇAY", "AYRAN", "SÜT", "LİMONATA", "CİPS", "TURŞU", "REÇEL", "YOĞURT", "LOKUM", "HELVA", "KEK", "KURABİYE", "SUCUK", "MISIR", "ANANAS", "NAR", "KAVUN"]
+    },
+    "ev": {
+      "label": "Ev eşyaları",
+      "words": ["MASA", "SANDALYE", "KOLTUK", "YATAK", "YASTIK", "BATTANİYE", "DOLAP", "AYNA", "LAMBA", "HALI", "PERDE", "SAAT", "TELEVİZYON", "BUZDOLABI", "FIRIN", "TENCERE", "TAVA", "ÇATAL", "KAŞIK", "BIÇAK", "BARDAK", "TABAK", "FİNCAN", "ÇAYDANLIK", "ŞEMSİYE", "ANAHTAR", "KİLİT", "MUM", "SÜPÜRGE", "ÜTÜ", "MAKAS", "KAPI", "PENCERE", "MERDİVEN", "MUSLUK", "VAZO", "SEPET", "KUMANDA", "ÇEKİÇ", "ÇİVİ", "HAVLU", "SABUN", "TARAK", "KOVA", "FENER", "BEŞİK", "KİBRİT"]
+    },
+    "doga": {
+      "label": "Doğa ve hava",
+      "words": ["DENİZ", "GÖL", "NEHİR", "DAĞ", "ORMAN", "ÇÖL", "ADA", "MAĞARA", "ŞELALE", "VOLKAN", "BULUT", "YAĞMUR", "KAR", "RÜZGAR", "FIRTINA", "ŞİMŞEK", "GÖKKUŞAĞI", "GÜNEŞ", "AY", "YILDIZ", "TOPRAK", "KUM", "TAŞ", "BUZ", "ATEŞ", "ÇİÇEK", "GÜL", "LALE", "PAPATYA", "AĞAÇ", "YAPRAK", "ÇİMEN", "KAKTÜS", "MANTAR", "DALGA", "SİS", "DOLU", "DEPREM", "KAYA", "VADİ", "TOHUM", "ÇAMUR", "BATAKLIK"]
+    },
+    "tasit": {
+      "label": "Taşıtlar",
+      "words": ["ARABA", "OTOBÜS", "TREN", "UÇAK", "GEMİ", "BİSİKLET", "MOTOSİKLET", "TAKSİ", "KAMYON", "HELİKOPTER", "ROKET", "DENİZALTI", "METRO", "TRAMVAY", "VAPUR", "KAYIK", "SANDAL", "PARAŞÜT", "KIZAK", "TRAKTÖR", "AMBULANS", "TELEFERİK", "YAT", "FAYTON", "KARAVAN", "MİNİBÜS", "DOLMUŞ", "KANO"]
+    },
+    "meslek": {
+      "label": "Meslekler",
+      "words": ["DOKTOR", "ÖĞRETMEN", "POLİS", "ASKER", "PİLOT", "AŞÇI", "GARSON", "BERBER", "TERZİ", "ÇİFTÇİ", "BALIKÇI", "AVUKAT", "HAKİM", "MÜHENDİS", "MİMAR", "ŞOFÖR", "İTFAİYECİ", "HEMŞİRE", "ECZACI", "DİŞÇİ", "KASAP", "FIRINCI", "RESSAM", "ŞARKICI", "OYUNCU", "YAZAR", "GAZETECİ", "DEDEKTİF", "ASTRONOT", "PALYAÇO", "SİHİRBAZ", "BEKÇİ", "POSTACI", "ÇOBAN", "BAHÇIVAN", "DALGIÇ", "HAKEM", "MADENCİ", "ARKEOLOG", "PROFESÖR", "FOTOĞRAFÇI"]
+    },
+    "giysi": {
+      "label": "Giysi ve aksesuar",
+      "words": ["ŞAPKA", "ATKI", "ELDİVEN", "ÇORAP", "AYAKKABI", "ÇİZME", "TERLİK", "CEKET", "MONT", "KAZAK", "GÖMLEK", "PANTOLON", "ETEK", "ELBİSE", "KRAVAT", "KEMER", "GÖZLÜK", "YÜZÜK", "KOLYE", "KÜPE", "ÇANTA", "CÜZDAN", "PİJAMA", "MAYO", "MASKE", "BERE", "YELEK", "ŞORT", "SMOKİN", "PELERİN", "BİLEZİK", "TOKA", "ŞAL", "BORNOZ", "ÖNLÜK", "PARFÜM", "RUJ"]
+    },
+    "yer": {
+      "label": "Yerler",
+      "words": ["OKUL", "HASTANE", "MÜZE", "KÜTÜPHANE", "SİNEMA", "TİYATRO", "STADYUM", "İSTASYON", "LİMAN", "ÇARŞI", "PAZAR", "MARKET", "KAFE", "LOKANTA", "OTEL", "BANKA", "SARAY", "KALE", "KÖPRÜ", "KULE", "PARK", "BAHÇE", "PLAJ", "HAPİSHANE", "ÇİFTLİK", "FABRİKA", "OFİS", "MUTFAK", "BANYO", "BALKON", "ÇATI", "BODRUM", "HAMAM", "LUNAPARK", "HAVAALANI", "ÇADIR", "PİRAMİT", "GÖKDELEN", "ASANSÖR"]
+    },
+    "spor": {
+      "label": "Spor ve oyun",
+      "words": ["FUTBOL", "BASKETBOL", "VOLEYBOL", "TENİS", "YÜZME", "BOKS", "GÜREŞ", "KAYAK", "SATRANÇ", "TAVLA", "OKEY", "ZAR", "TOP", "RAKET", "KUPA", "MADALYA", "DÜDÜK", "KOŞU", "MARATON", "GOLF", "OKÇULUK", "YOGA", "PATEN", "KAYKAY", "SÖRF", "DART", "BİLARDO", "HALTER", "FORMA", "GOL", "PENALTI", "ŞAMPİYON", "YAPBOZ", "SAKLAMBAÇ", "UÇURTMA", "BALON", "SALINCAK", "KAYDIRAK", "İSKAMBİL"]
+    },
+    "sanat": {
+      "label": "Müzik ve sanat",
+      "words": ["GİTAR", "PİYANO", "DAVUL", "KEMAN", "FLÜT", "SAZ", "TROMPET", "MİKROFON", "KONSER", "ŞARKI", "RESİM", "HEYKEL", "FIRÇA", "BOYA", "KAMERA", "FOTOĞRAF", "FİLM", "ROMAN", "ŞİİR", "MASAL", "OPERA", "BALE", "SAHNE", "NOTA", "KORO", "RADYO", "KULAKLIK", "PLAK", "DANS", "TABLO", "SİRK", "KUKLA", "ORKESTRA", "AKORDİYON", "DARBUKA", "BAĞLAMA", "ZİL", "MÜZİK"]
+    },
+    "vucut": {
+      "label": "Vücut",
+      "words": ["GÖZ", "KULAK", "BURUN", "AĞIZ", "DİŞ", "DİL", "SAÇ", "KAŞ", "EL", "PARMAK", "TIRNAK", "KOL", "BACAK", "AYAK", "DİZ", "OMUZ", "KALP", "BEYİN", "MİDE", "KEMİK", "KAN", "DERİ", "SAKAL", "BIYIK", "DUDAK", "BOYUN", "SIRT", "GÖBEK", "TOPUK", "YANAK", "ÇENE", "KİRPİK", "AKCİĞER", "BİLEK", "DİRSEK"]
+    },
+    "teknoloji": {
+      "label": "Teknoloji ve kırtasiye",
+      "words": ["TELEFON", "BİLGİSAYAR", "KLAVYE", "EKRAN", "YAZICI", "KABLO", "PİL", "ROBOT", "UYDU", "İNTERNET", "KALEM", "SİLGİ", "DEFTER", "KİTAP", "KAĞIT", "ZARF", "PUL", "HARİTA", "PUSULA", "MIKNATIS", "ŞİFRE", "TABLET", "ŞARJ", "AMPUL", "ANTEN", "LAZER", "MİKROSKOP", "TELESKOP", "TAKVİM", "DÜRBÜN", "MEKTUP", "GAZETE", "DERGİ", "SÖZLÜK", "TEBEŞİR", "CETVEL", "ATAŞ", "ZIMBA"]
+    },
+    "masal": {
+      "label": "Masal ve fantastik",
+      "words": ["EJDERHA", "CADI", "DEV", "CÜCE", "PERİ", "HAYALET", "VAMPİR", "ZOMBİ", "UZAYLI", "BÜYÜCÜ", "HAZİNE", "İKSİR", "ŞATO", "CİN", "ANKA", "MUMYA", "KILIÇ", "KALKAN", "ZIRH", "KAHRAMAN", "CANAVAR", "YETİ", "KRAL", "KRALİÇE", "PRENSES", "KORSAN", "ŞÖVALYE", "SİHİR", "TILSIM"]
+    }
+  },
+  "nitelik": ["SICAK", "SOĞUK", "HIZLI", "YAVAŞ", "BÜYÜK", "KÜÇÜK", "UZUN", "KISA", "YÜKSEK", "ALÇAK", "DERİN", "ESKİ", "YENİ", "GENÇ", "YAŞLI", "TATLI", "ACI", "EKŞİ", "TUZLU", "YUMUŞAK", "SERT", "KARANLIK", "SESSİZ", "GÜRÜLTÜLÜ", "KIRMIZI", "MAVİ", "YEŞİL", "SARI", "BEYAZ", "SİYAH", "PEMBE", "MOR", "TURUNCU", "ISLAK", "KURU", "BOŞ", "AĞIR", "HAFİF", "KIRIK", "SİVRİ", "YUVARLAK", "ÇİZGİLİ", "TÜYLÜ", "PARLAK", "VAHŞİ", "ÇILGIN", "KORKUNÇ", "KOMİK", "ÜZGÜN", "MUTLU", "KIZGIN", "AÇ", "YORGUN", "UYKULU", "ZENGİN", "FAKİR", "ÜNLÜ", "GİZLİ", "KAYIP", "SAHTE", "TEHLİKELİ", "YAPIŞKAN", "KAYGAN", "DİKENLİ", "KOKULU", "NAZİK", "KABA", "TEMBEL", "ÇALIŞKAN", "CESUR", "KORKAK", "AKILLI", "SAKAR", "KİRLİ", "TEMİZ", "DAR", "GENİŞ", "İNCE", "KALIN", "KIVIRCIK", "UZAK", "YAKIN", "YABANCI", "EVCİL", "UÇAN", "DONMUŞ", "YANIK", "TAZE", "ÇİĞ", "ILIK", "PAHALI", "UCUZ", "NADİR", "GARİP", "SEVİMLİ", "ŞIK", "DAĞINIK", "SULU", "ÇITIR", "KOCAMAN", "MİNİK", "GÖRÜNMEZ", "ROMANTİK", "ACİL", "YASAK", "RESMİ"],
+  "kavram": ["AŞK", "KORKU", "RÜYA", "KABUS", "ANI", "ZAMAN", "PARA", "BARIŞ", "ÖZGÜRLÜK", "TEHLİKE", "ŞANS", "ZAFER", "HATA", "SIR", "YALAN", "ŞAKA", "SÜRPRİZ", "HEDİYE", "ÖDÜL", "CEZA", "KURAL", "YOLCULUK", "MACERA", "KAÇIŞ", "SABAH", "AKŞAM", "GECE", "KIŞ", "YAZ", "İLKBAHAR", "SONBAHAR", "PAZARTESİ", "ÇOCUKLUK", "GÜRÜLTÜ", "SES", "IŞIK", "GÖLGE", "KOKU", "RENK", "HIZ", "GÜÇ", "ENERJİ", "ELEKTRİK", "UYKU", "KAVGA", "ÖPÜCÜK", "ALKIŞ", "KAHKAHA", "GÖZYAŞI", "TER", "NEFES", "ÇIĞLIK", "FISILTI", "HAPŞIRIK", "DİYET", "ŞEHİR", "KÖY", "UZAY", "CENNET", "TARİH", "GELECEK", "GEÇMİŞ", "KUZEY", "GÜNEY", "DOĞU", "BATI", "SINIR", "YOL", "TÜNEL", "ZİRVE", "ÇUKUR", "KUYU", "DUVAR", "DUMAN", "TOZ", "KÖPÜK", "ALTIN", "GÜMÜŞ", "ELMAS", "İNCİ", "DEMİR", "CAM", "PLASTİK", "PAMUK", "İPEK", "YÜN", "TÜY", "KANAT", "KUYRUK", "BOYNUZ", "PENÇE", "YUMRUK", "ÇİZGİ", "NOKTA", "DAİRE", "ÜÇGEN", "SPİRAL", "ZİKZAK", "DÜĞÜM", "ZİNCİR", "İP", "AĞ", "TUZAK", "KAFES", "KUTU", "PAKET", "BAYRAK", "HARF", "SAYI", "SIFIR", "MİLYON", "BEBEK", "ÇOCUK", "AİLE", "ARKADAŞ", "KOMŞU", "TURİST", "KİLO", "DAKİKA", "ALARM", "SİREN", "KORNA", "YARIŞ", "KAMP", "TATİL", "DÜĞÜN", "PARTİ", "BAYRAM", "PİKNİK", "SINAV", "TOPLANTI", "FESTİVAL", "YILBAŞI", "TRAFİK", "ALIŞVERİŞ", "MANGAL", "TÖREN", "HAYAL", "OYUN", "DENGE"]
+}

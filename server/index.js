@@ -5,7 +5,7 @@ import path from 'node:path';
 import { randomInt, createHash } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { loadConfig, ROOT } from './config.js';
-import { loadGameData } from './data.js';
+import { Deck } from './deck.js';
 import { createStore } from './store.js';
 import { Room } from './room.js';
 
@@ -18,9 +18,9 @@ const MSG_WINDOW_MAX = 100;
 const MAX_ROOMS = 2000;
 
 const config = loadConfig();
-const { dictionary, puzzles } = loadGameData(config);
+const deck = Deck.load();
 const store = await createStore();
-console.log(`[sinyal] sözlük: ${dictionary.ranks.size} kelime, bulmaca: ${puzzles.size}${config.devMode ? ' (geliştirme modu: 2 oyuncu yeterli)' : ''}`);
+console.log(`[sinyal] deste: ${deck.size} tahta kelimesi, ${deck.cardPool.length + deck.nitelik.length} sinyal kartı`);
 
 /** @type {Map<string, Room>} */
 const rooms = new Map();
@@ -45,8 +45,7 @@ function createRoom() {
   const room = new Room({
     code,
     config,
-    dictionary,
-    puzzles,
+    deck,
     store,
     send: (playerId, msg) => sendTo(code, playerId, msg),
     disconnectPlayer: (playerId) => {
