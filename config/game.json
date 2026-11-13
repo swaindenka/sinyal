@@ -8,6 +8,7 @@
   "points": [3, 2, 1],
   "handSize": 6,
   "handNitelik": 2,
+  "handKin": 1,
   "redrawsPerRound": 1,
   "signalSeconds": 45,
   "guessSeconds": 60,

@@ -1,8 +1,4 @@
-// Türkçe alfabe ve normalizasyon (spec 9.1)
-
-export const ALPHABET = [...'ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ'];
-const ALPHABET_SET = new Set(ALPHABET);
-export const VOWELS = new Set([...'AEIİOÖUÜ']);
+// Türkçe büyük harf ve etiket temizliği.
 
 /**
  * Karşılaştırma için normalize edilmiş büyük harf:
@@ -18,13 +14,6 @@ export function normalize(input) {
     .replace(/Î/g, 'İ')
     .replace(/Û/g, 'U')
     .replace(/̇/g, '');
-}
-
-/** Kelime yalnızca 29 harflik Türkçe alfabeden mi oluşuyor? */
-export function isAlphabetic(word) {
-  if (!word) return false;
-  for (const ch of word) if (!ALPHABET_SET.has(ch)) return false;
-  return true;
 }
 
 /** Görünen ad / takım adı temizliği: kontrol karakterleri ve fazla boşluklar atılır. */

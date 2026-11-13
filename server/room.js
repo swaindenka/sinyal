@@ -527,7 +527,7 @@ export class Room {
       picks: [],
       result: null,
     };
-    this.round.hand = this.deck.draw({ count: c.handSize, nitelik: c.handNitelik, avoid: board.map((b) => b.word), rng: this.rng });
+    this.round.hand = this.drawHand(this.round, board.map((b) => b.word));
     captain.stats.captainRounds += 1;
     this.emit('round', { no: run.roundNo, captainId: captain.id, level: level.name });
     this.enterSignal();
@@ -547,6 +547,13 @@ export class Room {
     this.cancelLock();
     this.setPhase(Phase.GUESS, r.level.guessSeconds ?? this.config.guessSeconds);
     this.sendPrivate(r.captainId);
+  }
+
+  /** Tam el: sıfatlar + hedefin kategorisinden kart(lar) + karışık kartlar. */
+  drawHand(r, avoid) {
+    const c = this.config;
+    const kinCategory = r.board.find((b) => b.role === 'target')?.category;
+    return this.deck.draw({ count: c.handSize, nitelik: c.handNitelik, kin: c.handKin ?? 0, kinCategory, avoid, rng: this.rng });
   }
 
   /** Oynanan kartın yerine aynı türden (nitelik / kart) yenisi gelir. */
@@ -592,10 +599,9 @@ export class Room {
     if (!this.isCaptain(p.id)) throw new GameError('NOT_CAPTAIN');
     const r = this.round;
     if (r.redraws <= 0) throw new GameError('NO_REDRAWS');
-    const c = this.config;
     const avoid = [...r.board.map((b) => b.word), ...r.signals.map((s) => s.word), ...r.hand];
-    const hand = this.deck.draw({ count: c.handSize, nitelik: c.handNitelik, avoid, rng: this.rng });
-    if (hand.length < c.handSize) throw new GameError('DECK_EMPTY');
+    const hand = this.drawHand(r, avoid);
+    if (hand.length < this.config.handSize) throw new GameError('DECK_EMPTY');
     r.hand = hand;
     r.redraws -= 1;
     this.emit('redraw', { captainId: p.id });

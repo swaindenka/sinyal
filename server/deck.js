@@ -98,10 +98,11 @@ export class Deck {
   }
 
   /**
-   * Kaptana kart çeker. `nitelik` kadarı sıfat havuzundan, kalanı kavram + somut kelimelerden gelir.
-   * Tahtadaki, eldeki ve bu turda oynanmış kelimelerle çakışanlar gelmez.
+   * Kaptana kart çeker: `nitelik` kadarı sıfat havuzundan, `kin` kadarı hedefin kategorisinden
+   * (`kinCategory`), kalanı kavram + bütün somut kelimelerden. Tahtadaki, eldeki ve bu turda
+   * oynanmış kelimelerle çakışanlar gelmez. Kartların sırası karıştırılır.
    */
-  draw({ count, nitelik = 0, avoid = [], rng }) {
+  draw({ count, nitelik = 0, kin = 0, kinCategory = null, avoid = [], rng }) {
     const out = [];
     const blocked = [...avoid];
     const one = (pool) => {
@@ -120,7 +121,16 @@ export class Deck {
         blocked.push(w);
       }
     };
-    for (let i = 0; i < count; i++) one(i < nitelik ? this.nitelik : this.cardPool);
+    const kinPool = this.categories.find((c) => c.key === kinCategory)?.words ?? [];
+    for (let i = 0; i < count; i++) {
+      if (i < nitelik) one(this.nitelik);
+      else if (i < nitelik + kin && kinPool.length) one(kinPool);
+      else one(this.cardPool);
+    }
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
     return out;
   }
 }

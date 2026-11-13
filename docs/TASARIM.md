@@ -54,7 +54,7 @@ Bütün sayılar `config/game.json`'dadır.
 - `nitelik`: sinyal elinde kullanılan 106 sıfat (SICAK, SİVRİ, TATLI…). Her elde 2 tane bulunur; çağrışımı esnek tutar.
 - `kavram`: 140 soyut ve çok anlamlı kelime (RÜYA, KORKU, GECE…).
 
-Sinyal eli: 2 nitelik + 4 kart (kavram ve bütün kategori kelimeleri). Tahtadaki bir kelimeyle aynı, birini içeren ya da ilk 4 harfi aynı olan kelimeler ele gelmez (KAR ↔ KARPUZ, LİMON ↔ LİMONATA). Aynı kural tahtadaki kartlar arasında da geçerlidir. Bir oyun boyunca tahta kelimeleri tekrarlanmaz (deste bitene kadar).
+Sinyal eli: 2 nitelik + hedefin kategorisinden 1 kart + 3 karışık kart (kavram ve bütün kategori kelimeleri). Kategori kartı ilk seviyelerde güvenli bir ipucudur; parazitler hedefle aynı kategoriden gelmeye başlayınca kaptanı tuzağa düşürebilir. Tahtadaki bir kelimeyle aynı, birini içeren ya da ilk 4 harfi aynı olan kelimeler ele gelmez (KAR ↔ KARPUZ, LİMON ↔ LİMONATA). Aynı kural tahtadaki kartlar arasında da geçerlidir. Bir oyun boyunca tahta kelimeleri tekrarlanmaz (deste bitene kadar).
 
 ## 5. Durum makinesi
 

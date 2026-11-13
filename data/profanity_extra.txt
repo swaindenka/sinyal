@@ -1,5 +1,0 @@
-# data/raw/kufur.txt'ye ek olarak filtrelenecek argo/küfür kelimeleri (her satıra bir kelime)
-amcık
-yarrak
-sikik
-götlek

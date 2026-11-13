@@ -49,13 +49,16 @@ test('tahta: istenen rol dağılımı, çakışmasız kelimeler', () => {
   }
 });
 
-test('el: istenen kadar nitelik, kaçınılan kelimelerle çakışmaz', () => {
+test('el: istenen kadar nitelik ve hedefin kategorisinden kart, kaçınılan kelimelerle çakışmaz', () => {
   const deck = new Deck(data);
   for (let seed = 1; seed <= 100; seed++) {
-    const avoid = deck.board({ parasites: 1 }, { size: 8, rng: seeded(seed) }).map((c) => c.word);
-    const hand = deck.draw({ count: 6, nitelik: 2, avoid, rng: seeded(seed + 1000) });
+    const board = deck.board({ parasites: 1 }, { size: 8, rng: seeded(seed) });
+    const avoid = board.map((c) => c.word);
+    const kinCategory = board.find((c) => c.role === 'target').category;
+    const hand = deck.draw({ count: 6, nitelik: 2, kin: 1, kinCategory, avoid, rng: seeded(seed + 1000) });
     assert.equal(hand.length, 6);
-    assert.ok(hand.slice(0, 2).every((w) => data.nitelik.includes(w)));
+    assert.equal(hand.filter((w) => data.nitelik.includes(w)).length, 2);
+    assert.ok(hand.some((w) => data.categories[kinCategory].words.includes(w)), 'hedefin kategorisinden kart var');
     for (const w of hand) for (const a of avoid) assert.ok(!clashes(w, a), `${w} / ${a}`);
     assert.equal(new Set(hand).size, 6);
   }
