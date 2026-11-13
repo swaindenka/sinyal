@@ -1,8 +1,8 @@
-// Takım rekorları ve takıma verilmiş bulmacalar (spec 4.7, 9.3).
+// Takım rekorları. v1 (kelime sayısı) rekorları yeni puanlamayla karışmasın diye v2 ayrı yere yazılır.
 //
 // Veriler bellekte tutulur ve arka planda kalıcı hale getirilir:
-//   - DATABASE_URL tanımlıysa PostgreSQL (Render Postgres vb.)
-//   - değilse DATA_DIR/teams.json dosyası (varsayılan: ./storage)
+//   - DATABASE_URL tanımlıysa PostgreSQL (Render Postgres vb.), tablo: sinyal_teams_v2
+//   - değilse DATA_DIR/teams-v2.json dosyası (varsayılan: ./storage)
 import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { normalize } from './turkish.js';
@@ -12,7 +12,7 @@ export function teamKey(name) {
 }
 
 function emptyTeam(name) {
-  return { name, bestScore: 0, bestStars: 0, runs: 0, usedSecrets: [] };
+  return { name, bestScore: 0, runs: 0 };
 }
 
 export class TeamStore {
@@ -39,29 +39,16 @@ export class TeamStore {
     return this.teams.get(teamKey(name)) ?? null;
   }
 
-  usedSecrets(name) {
-    return new Set(this.getTeam(name).usedSecrets);
-  }
-
-  markUsed(name, secret) {
+  /** Oyun sonu: rekoru günceller. */
+  recordRun(name, score) {
     const team = this.getTeam(name);
-    if (!team.usedSecrets.includes(secret)) team.usedSecrets.push(secret);
-    this.touch(name);
-  }
-
-  /** Oyun sonu: rekoru günceller. Skor eşitse yıldız sayısına bakılır. */
-  recordRun(name, score, stars) {
-    const team = this.getTeam(name);
-    const previous = { bestScore: team.bestScore, bestStars: team.bestStars };
-    const isNewRecord = score > team.bestScore || (score === team.bestScore && stars > team.bestStars);
-    if (isNewRecord) {
-      team.bestScore = score;
-      team.bestStars = stars;
-    }
+    const previous = team.bestScore;
+    const isNewRecord = score > 0 && score > team.bestScore;
+    if (isNewRecord) team.bestScore = score;
     team.name = name;
     team.runs += 1;
     this.touch(name);
-    return { previous, isNewRecord, bestScore: team.bestScore, bestStars: team.bestStars, runs: team.runs };
+    return { previous, isNewRecord, bestScore: team.bestScore, runs: team.runs };
   }
 
   touch(name) {
@@ -97,7 +84,7 @@ export class TeamStore {
 
 export class FileBackend {
   constructor(dir) {
-    this.file = path.join(dir, 'teams.json');
+    this.file = path.join(dir, 'teams-v2.json');
     mkdirSync(dir, { recursive: true });
   }
 
@@ -106,7 +93,7 @@ export class FileBackend {
     try {
       return Object.entries(JSON.parse(readFileSync(this.file, 'utf8')));
     } catch (err) {
-      console.error('[sinyal] teams.json okunamadı:', err.message);
+      console.error('[sinyal] takım kayıtları okunamadı:', err.message);
       return [];
     }
   }
@@ -127,7 +114,7 @@ export class PostgresBackend {
   async connect() {
     const { default: pg } = await import('pg');
     const createTable =
-      'CREATE TABLE IF NOT EXISTS sinyal_teams (key TEXT PRIMARY KEY, data JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())';
+      'CREATE TABLE IF NOT EXISTS sinyal_teams_v2 (key TEXT PRIMARY KEY, data JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())';
     // Adreste sslmode varsa ona uyulur. Yoksa önce SSL denenir (Render dış adresi, Neon, Supabase…),
     // sunucu SSL desteklemiyorsa (Render iç adresi, yerel kurulum) SSL'siz bağlanılır.
     const attempts = /sslmode=/.test(this.url) ? [undefined] : [{ rejectUnauthorized: false }, false];
@@ -149,14 +136,14 @@ export class PostgresBackend {
 
   async loadAll() {
     if (!this.pool) await this.connect();
-    const { rows } = await this.pool.query('SELECT key, data FROM sinyal_teams');
+    const { rows } = await this.pool.query('SELECT key, data FROM sinyal_teams_v2');
     return rows.map((r) => [r.key, r.data]);
   }
 
   async save(changed) {
     for (const [key, team] of changed) {
       await this.pool.query(
-        `INSERT INTO sinyal_teams (key, data, updated_at) VALUES ($1, $2, now())
+        `INSERT INTO sinyal_teams_v2 (key, data, updated_at) VALUES ($1, $2, now())
          ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
         [key, team],
       );

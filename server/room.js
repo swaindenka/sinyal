@@ -1,29 +1,30 @@
-// SİNYAL oda ve oyun motoru. Sunucu otoriterdir: tüm doğrulama ve renk hesabı burada yapılır.
+// SİNYAL v2 oda ve oyun motoru. Sunucu otoriterdir; kurallar docs/TASARIM.md'de.
 //
-// Durum makinesi (spec 11.1):
-//   LOBBY → WORD_SETUP → SIGNAL ⇄ DISCUSSION → [MOLE_VOTE] → REVEAL → WORD_SETUP … → RUN_END
+//   LOBBY → SIGNAL → GUESS → (boş/pas: SIGNAL) … → REVEAL → SIGNAL (sonraki tur) … → END
 import { randomBytes } from 'node:crypto';
-import { score, blindColors } from './score.js';
-import { normalize, isAlphabetic, cleanLabel } from './turkish.js';
+import { normalize, cleanLabel } from './turkish.js';
 import { GameError } from './errors.js';
-import { dealHand, replaceCard, redrawHand, drawPower, playPower } from './cards.js';
+
+export { GameError };
 
 export const Phase = Object.freeze({
   LOBBY: 'LOBBY',
-  WORD_SETUP: 'WORD_SETUP',
   SIGNAL: 'SIGNAL',
-  DISCUSSION: 'DISCUSSION',
-  MOLE_VOTE: 'MOLE_VOTE',
+  GUESS: 'GUESS',
   REVEAL: 'REVEAL',
-  RUN_END: 'RUN_END',
+  END: 'END',
 });
 
-/** Kelimenin oynandığı aşamalar (gizli bilgi aktif). */
-const WORD_PHASES = new Set([Phase.WORD_SETUP, Phase.SIGNAL, Phase.DISCUSSION]);
-/** Sayaç işleyen, duraklatılabilen aşamalar. */
-const ACTIVE_PHASES = new Set([...WORD_PHASES, Phase.MOLE_VOTE, Phase.REVEAL]);
+/** Sayaç işleyen aşamalar: oyuncu eksilince donar. */
+const PLAY_PHASES = new Set([Phase.SIGNAL, Phase.GUESS, Phase.REVEAL]);
+export const PASS = 'pass';
 
-export { GameError };
+const NAME_MAX = 16;
+const TEAM_MAX = 24;
+const COLORS = 8;
+const EVENTS_KEPT = 30;
+
+export const TEAM_SUGGESTIONS = ['Kartallar', 'Sinyalciler', 'Gece Kuşları', 'Frekans', 'Kuzey Yıldızı', 'Fenerciler', 'Telsizciler', 'Dalga Boyu', 'Pusula', 'Radar'];
 
 const realClock = {
   now: () => Date.now(),
@@ -31,47 +32,15 @@ const realClock = {
   clearTimeout: (h) => clearTimeout(h),
 };
 
-export function emptyStats() {
-  return {
-    captainWords: 0,
-    captainSolved: 0,
-    captainRowsSolved: 0,
-    captainStars: 0,
-    proposed: 0,
-    proposedCorrect: 0,
-    proposedTrap: 0,
-    submitted: 0,
-    submittedCorrect: 0,
-    submittedTrap: 0,
-    moleTurns: 0,
-    moleSuccess: 0,
-    moleCaught: 0,
-    masterMole: 0,
-    moleCorrectVotes: 0,
-  };
+function emptyStats() {
+  return { captainRounds: 0, captainHits: 0, captainPoints: 0 };
 }
 
-const NAME_MAX = 16;
-const TEAM_MAX = 24;
-const WORD_MAX = 12;
-
 export class Room {
-  constructor({
-    code,
-    config,
-    dictionary,
-    puzzles,
-    store,
-    clock = realClock,
-    rng = Math.random,
-    send = () => {},
-    disconnectPlayer = () => {},
-    onEmpty = () => {},
-  }) {
+  constructor({ code, config, deck, store, clock = realClock, rng = Math.random, send = () => {}, disconnectPlayer = () => {}, onEmpty = () => {} }) {
     this.code = code;
     this.config = config;
-    this.dictionary = dictionary;
-    this.puzzles = puzzles;
+    this.deck = deck;
     this.store = store;
     this.clock = clock;
     this.rng = rng;
@@ -80,26 +49,23 @@ export class Room {
     this.onEmpty = onEmpty;
 
     this.players = new Map();
-    this.order = []; // kaptan sırası (ayrılmamış oyuncu id'leri)
-    this.orderCustomized = false;
+    this.order = []; // kaptan sırası
     this.hostId = null;
-    this.teamName = '';
-    // 'cards': kaptan elindeki sinyal kartlarından oynar; 'free': sinyali serbestçe yazar
-    this.mode = this.config.cards?.defaultMode === 'free' ? 'free' : 'cards';
+    this.hostTimer = null;
+    this.teamName = TEAM_SUGGESTIONS[Math.floor(rng() * TEAM_SUGGESTIONS.length)];
 
     this.phase = Phase.LOBBY;
     this.endsAt = null;
-    this.pausedRemaining = null;
+    this.phaseMs = null;
+    this.frozenRemaining = null;
+    this.waiting = false;
     this.phaseTimer = null;
     this.timerToken = 0;
-    this.pauseReasons = new Set();
-    this.captainTimer = null;
-    this.captainAwayUntil = null;
-    this.hostTimer = null;
+    this.lockTimer = null;
 
+    this.runSeq = 0;
     this.run = null;
-    this.word = null;
-    this.reveal = null;
+    this.round = null;
     this.summary = null;
 
     this.events = [];
@@ -107,6 +73,7 @@ export class Room {
     this.idSeq = 0;
     this.broadcastQueued = false;
     this.closed = false;
+    this.emptySince = null;
   }
 
   // ───────────────────────── yardımcılar ─────────────────────────
@@ -133,10 +100,10 @@ export class Room {
 
   emit(type, data = {}) {
     this.events.push({ seq: ++this.eventSeq, type, at: this.now(), ...data });
-    if (this.events.length > 24) this.events.shift();
+    if (this.events.length > EVENTS_KEPT) this.events.shift();
   }
 
-  /** Durumu bir sonraki mikro görevde herkese yayınlar (aynı anda gelen değişiklikler tek yayında). */
+  /** Aynı anda gelen değişiklikler tek yayında gider. */
   changed() {
     if (this.broadcastQueued || this.closed) return;
     this.broadcastQueued = true;
@@ -160,31 +127,26 @@ export class Room {
     return this.activePlayers().filter((p) => p.connected);
   }
 
-  orderedPlayers() {
-    return this.order.map((id) => this.players.get(id));
-  }
-
   /** Bağlı tahminciler (kaptan hariç). */
   guessers() {
-    const captainId = this.word?.captainId;
+    const captainId = this.round?.captainId;
     return this.connectedPlayers().filter((p) => p.id !== captainId);
   }
 
-  guessThreshold() {
-    return Math.floor(this.guessers().length / 2) + 1;
+  isCaptain(playerId) {
+    return Boolean(this.round) && this.round.captainId === playerId;
   }
 
-  rowsRemaining() {
-    return this.word ? this.word.rowLimit - this.word.board.length : 0;
-  }
-
-  isPaused() {
-    return this.pauseReasons.size > 0 && ACTIVE_PHASES.has(this.phase);
-  }
-
-  nameTaken(name, exceptId = null) {
-    const key = normalize(name);
-    return this.activePlayers().some((p) => p.id !== exceptId && normalize(p.name) === key);
+  levelFor(roundNo) {
+    let level = this.config.levels[0];
+    let index = 0;
+    this.config.levels.forEach((l, i) => {
+      if (roundNo >= l.from) {
+        level = l;
+        index = i;
+      }
+    });
+    return { ...level, index };
   }
 
   shuffle(arr) {
@@ -195,12 +157,19 @@ export class Room {
     return arr;
   }
 
+  nameTaken(name, exceptId = null) {
+    const key = normalize(name);
+    return this.activePlayers().some((p) => p.id !== exceptId && normalize(p.name) === key);
+  }
+
+  freeColor() {
+    const used = new Set(this.activePlayers().map((p) => p.color));
+    for (let c = 0; c < COLORS; c++) if (!used.has(c)) return c;
+    return 0;
+  }
+
   // ───────────────────────── katılma / bağlantı ─────────────────────────
 
-  /**
-   * Odaya katılır ya da token ile yeniden bağlanır. Taşıma katmanı soketi bağladıktan
-   * sonra sendPrivate(id) çağırmalıdır.
-   */
   join({ name, token } = {}) {
     const cleanName = cleanLabel(name, NAME_MAX);
     if (token) {
@@ -210,42 +179,38 @@ export class Room {
     if (!cleanName) throw new GameError('NAME_INVALID');
     if (this.nameTaken(cleanName)) throw new GameError('NAME_TAKEN');
     if (this.activePlayers().length >= this.config.maxPlayers) throw new GameError('ROOM_FULL');
-
     const p = {
       id: `p${++this.idSeq}`,
       token: randomBytes(16).toString('hex'),
       name: cleanName,
+      color: this.freeColor(),
       connected: true,
       left: false,
-      ready: false,
-      stats: emptyStats(),
-      lastProposalAt: -Infinity,
+      kicked: false,
       leaveTimer: null,
+      lastTokenAt: -Infinity,
+      stats: emptyStats(),
     };
     this.players.set(p.id, p);
-    this.order.push(p.id); // oyun sırasında katılan sıranın sonuna eklenir, tahminci başlar
-    this.run?.participants.add(p.id);
+    this.order.push(p.id); // oyun sırasında gelen, sıranın sonuna eklenir ve tahminci başlar
     if (!this.hostId || this.players.get(this.hostId)?.left) this.hostId = p.id;
-    this.emit('join', { playerId: p.id });
+    this.emit('join', { playerId: p.id, name: p.name });
     this.afterConnectionChange();
     this.changed();
     return p;
   }
 
   rejoin(p, name) {
-    if (p.kicked && p.left) throw new GameError('KICKED');
+    if (p.kicked) throw new GameError('KICKED');
     if (p.left) {
-      // 60 sn'den sonra dönen oyuncu yerini kaybetmiştir: sıranın sonuna eklenir.
       if (this.activePlayers().length >= this.config.maxPlayers) throw new GameError('ROOM_FULL');
       const newName = name || p.name;
       if (this.nameTaken(newName, p.id)) throw new GameError('NAME_TAKEN');
       p.name = newName;
       p.left = false;
-      p.ready = false;
+      p.color = this.freeColor();
       this.order.push(p.id);
-      this.run?.participants.add(p.id);
     }
-    if (!p.connected) this.emit('reconnect', { playerId: p.id, name: p.name });
     p.connected = true;
     this.clearTimer(p.leaveTimer);
     p.leaveTimer = null;
@@ -254,7 +219,6 @@ export class Room {
       this.hostTimer = null;
     }
     if (!this.hostId || this.players.get(this.hostId)?.left) this.hostId = p.id;
-    if (this.word && this.word.captainId === p.id && this.captainTimer) this.captainReturned();
     this.afterConnectionChange();
     this.changed();
     return p;
@@ -269,31 +233,25 @@ export class Room {
       this.clearTimer(this.hostTimer);
       this.hostTimer = this.setTimer(() => this.transferHost(), this.config.hostGraceSeconds * 1000);
     }
-    if (this.word && WORD_PHASES.has(this.phase) && this.word.captainId === playerId) this.captainLeft();
-    if (this.phase === Phase.MOLE_VOTE && this.word?.moleId === playerId) {
-      this.word.moleVoteSkipped = true;
-      this.enterReveal();
-    }
     this.emit('disconnect', { playerId, name: p.name });
     this.afterConnectionChange();
     this.changed();
   }
 
-  /** Oyuncu kalıcı olarak ayrılır (60 sn dolunca ya da "Ayrıl" ile). */
+  /** Oyuncu kalıcı olarak ayrılır ("Ayrıl", çıkarılma ya da bağlantı süresi doldu). */
   markLeft(playerId) {
     const p = this.players.get(playerId);
     if (!p || p.left) return;
-    const wasCaptain = this.word && WORD_PHASES.has(this.phase) && this.word.captainId === playerId;
     p.left = true;
     p.connected = false;
-    p.ready = false;
     this.clearTimer(p.leaveTimer);
     p.leaveTimer = null;
-    this.removeFromOrder(playerId);
-    if (this.word) {
-      for (const prop of this.word.proposals) prop.approvals = prop.approvals.filter((id) => id !== playerId);
-      this.pruneProposals();
+    const idx = this.order.indexOf(playerId);
+    if (idx >= 0) {
+      this.order.splice(idx, 1);
+      if (this.run && idx <= this.run.captainCursor) this.run.captainCursor -= 1;
     }
+    this.round?.tokens.delete(playerId);
     if (!this.activePlayers().length) {
       this.close();
       this.onEmpty(this);
@@ -301,20 +259,9 @@ export class Room {
     }
     if (this.hostId === playerId) this.transferHost(true);
     this.emit('leave', { playerId, name: p.name });
-    if (wasCaptain) this.cancelWord();
-    else if (this.phase === Phase.MOLE_VOTE && this.word?.moleId === playerId) {
-      this.word.moleVoteSkipped = true;
-      this.enterReveal();
-    }
+    if (this.isCaptain(playerId) && (this.phase === Phase.SIGNAL || this.phase === Phase.GUESS)) this.cancelRound('captain_left');
     this.afterConnectionChange();
     this.changed();
-  }
-
-  removeFromOrder(playerId) {
-    const idx = this.order.indexOf(playerId);
-    if (idx < 0) return;
-    this.order.splice(idx, 1);
-    if (this.run && idx <= this.run.captainCursor) this.run.captainCursor -= 1;
   }
 
   transferHost(force = false) {
@@ -326,100 +273,41 @@ export class Room {
     const n = this.order.length;
     for (let k = 0; k < n; k++) {
       const p = this.players.get(this.order[(start + k) % n]);
-      if (p.connected && p.id !== this.hostId) {
+      if (p && p.connected && p.id !== this.hostId) {
         this.hostId = p.id;
         this.emit('host', { playerId: p.id });
         return;
       }
     }
-    if (current?.left) this.hostId = this.order[0] ?? null;
-  }
-
-  /** Bağlı oyuncu sayısı alt sınırın altına düşerse oyun duraklar (spec 10). */
-  updatePlayersPause(phase = this.phase) {
-    const enough = this.connectedPlayers().length >= this.config.minPlayers;
-    if (ACTIVE_PHASES.has(phase) && !enough) this.pauseReasons.add('players');
-    else this.pauseReasons.delete('players');
+    if (!current || current.left) this.hostId = this.order[0] ?? null;
   }
 
   afterConnectionChange() {
-    this.updatePlayersPause();
-    this.applyPause();
-    if (this.phase === Phase.DISCUSSION && !this.isPaused()) this.checkProposals();
-    if (this.phase === Phase.MOLE_VOTE) this.checkMoleVoteComplete();
+    this.updateWaiting();
+    this.checkConsensus();
   }
 
-  // ── kaptan kopması (spec 10): 30 sn beklenir, dönmezse kelime iptal ──
-
-  captainLeft() {
-    this.pauseReasons.add('captain');
-    this.captainAwayUntil = this.now() + this.config.captainReconnectSeconds * 1000;
-    this.clearTimer(this.captainTimer);
-    this.captainTimer = this.setTimer(() => {
-      this.captainTimer = null;
-      this.captainAwayUntil = null;
-      this.pauseReasons.delete('captain');
-      this.cancelWord();
-    }, this.config.captainReconnectSeconds * 1000);
-    this.applyPause();
-  }
-
-  captainReturned() {
-    this.clearTimer(this.captainTimer);
-    this.captainTimer = null;
-    this.captainAwayUntil = null;
-    this.pauseReasons.delete('captain');
-    this.applyPause();
-  }
-
-  clearCaptainWait() {
-    if (!this.captainTimer && !this.pauseReasons.has('captain')) return;
-    this.clearTimer(this.captainTimer);
-    this.captainTimer = null;
-    this.captainAwayUntil = null;
-    this.pauseReasons.delete('captain');
-  }
-
-  // ───────────────────────── gizli bilgi ─────────────────────────
-
-  /** Gizli bilgiler yalnızca ilgili oyuncuya özel mesajla gider (spec 7). */
-  sendPrivate(playerId) {
-    const w = this.word;
-    if (!w || !(WORD_PHASES.has(this.phase) || this.phase === Phase.MOLE_VOTE)) return;
-    const { secret, traps, forbidden } = w.puzzle;
-    if (w.captainId === playerId) {
-      // Kategori kilidinde kaptan, kategoride kabul edilen kelimeleri görür (yasak harfliler hariç).
-      const categoryWords = w.category ? this.dictionary.categorySignals(w.category, secret.length, forbidden).sort((a, b) => a.localeCompare(b, 'tr')) : null;
-      this.send(playerId, { type: 'captain_info', wordIndex: this.run.wordIndex, secret, traps, forbidden, category: w.category, categoryWords });
+  /** Bağlı oyuncu sayısı alt sınırın altındaysa sayaç donar (oyuncu beklenir). */
+  updateWaiting() {
+    const waiting = PLAY_PHASES.has(this.phase) && this.connectedPlayers().length < this.config.minPlayers;
+    if (waiting === this.waiting) return;
+    this.waiting = waiting;
+    if (waiting) {
+      this.frozenRemaining = this.endsAt != null ? Math.max(0, this.endsAt - this.now()) : null;
+      this.clearTimer(this.phaseTimer);
+      this.phaseTimer = null;
+      this.timerToken++;
+      this.endsAt = null;
+      this.cancelLock();
+    } else {
+      const ms = this.frozenRemaining;
+      this.frozenRemaining = null;
+      // Kalan süre çok azsa oyunculara toparlanma payı bırak.
+      if (ms != null) this.schedule(Math.max(ms, 5000));
     }
-    if (w.moleId === playerId) {
-      this.send(playerId, { type: 'mole_info', wordIndex: this.run.wordIndex, secret, traps, forbidden });
-    }
-    if (w.captainId === playerId) this.sendHand();
   }
 
-  /** Kaptanın sinyal eli (kart modu): her kartla birlikte, oynanınca çıkacak renkler. */
-  sendHand() {
-    const w = this.word;
-    if (!w || this.mode !== 'cards' || !WORD_PHASES.has(this.phase)) return;
-    this.send(w.captainId, {
-      type: 'hand',
-      wordIndex: this.run.wordIndex,
-      cards: w.hand.map((word) => ({ word, colors: this.colorsFor(word) })),
-      redraws: w.handRedraws,
-      blanks: w.blankCards,
-      forbiddenPass: w.forbiddenPass,
-    });
-  }
-
-  /** Güç kartı "saat": o anki aşamanın süresini uzatır. */
-  extendPhase(ms) {
-    this.phaseDuration = (this.phaseDuration ?? 0) + ms;
-    if (this.endsAt != null) this.schedule(this.endsAt - this.now() + ms);
-    else if (this.pausedRemaining != null) this.pausedRemaining += ms;
-  }
-
-  // ───────────────────────── sayaçlar ve duraklatma ─────────────────────────
+  // ───────────────────────── sayaçlar ─────────────────────────
 
   setPhase(phase, seconds) {
     this.clearTimer(this.phaseTimer);
@@ -427,158 +315,84 @@ export class Room {
     this.timerToken++;
     this.phase = phase;
     this.endsAt = null;
-    this.pausedRemaining = null;
-    this.phaseDuration = seconds == null ? null : seconds * 1000;
+    this.frozenRemaining = null;
+    this.phaseMs = seconds == null ? null : seconds * 1000;
+    this.waiting = false;
+    this.updateWaiting();
     if (seconds == null) return;
-    const ms = seconds * 1000;
-    if (this.isPaused()) this.pausedRemaining = ms;
-    else this.schedule(ms);
+    if (this.waiting) this.frozenRemaining = this.phaseMs;
+    else this.schedule(this.phaseMs);
   }
 
   schedule(ms) {
     const token = ++this.timerToken;
     this.endsAt = this.now() + ms;
+    this.clearTimer(this.phaseTimer);
     this.phaseTimer = this.setTimer(() => {
-      if (token === this.timerToken) this.onTimeout();
+      if (token !== this.timerToken) return;
+      this.phaseTimer = null;
+      this.endsAt = null;
+      this.onTimeout();
     }, ms);
   }
 
-  applyPause() {
-    if (this.isPaused()) {
-      if (this.endsAt != null) {
-        this.pausedRemaining = Math.max(0, this.endsAt - this.now());
-        this.endsAt = null;
-        this.clearTimer(this.phaseTimer);
-        this.phaseTimer = null;
-        this.timerToken++;
-      }
-    } else if (this.pausedRemaining != null) {
-      const ms = this.pausedRemaining;
-      this.pausedRemaining = null;
-      this.schedule(ms);
-    }
-  }
-
   onTimeout() {
-    this.phaseTimer = null;
-    this.endsAt = null;
-    switch (this.phase) {
-      case Phase.WORD_SETUP:
-        this.enterSignal();
-        break;
-      case Phase.SIGNAL:
-        // Süre doldu: boş satır eklenir (satır harcanır).
-        this.word.board.push({ type: 'empty', word: null, colors: null, byPlayerId: this.word.captainId });
-        this.emit('empty_row');
-        this.enterDiscussion();
-        break;
-      case Phase.DISCUSSION:
-        if (this.rowsRemaining() <= 1) this.finishWord('rows');
-        else {
-          this.emit('time_up');
-          this.enterSignal();
-        }
-        break;
-      case Phase.MOLE_VOTE:
-        this.resolveMoleVote();
-        break;
-      case Phase.REVEAL:
-        this.afterReveal();
-        break;
-      default:
-        break;
-    }
+    if (this.phase === Phase.SIGNAL) this.signalTimeout();
+    else if (this.phase === Phase.GUESS) this.resolveByPlurality();
+    else if (this.phase === Phase.REVEAL) this.afterReveal();
   }
 
-  // ───────────────────────── mesaj yönlendirme ─────────────────────────
+  // ───────────────────────── gizli bilgi ─────────────────────────
+
+  /** Kartların rolleri ve el yalnızca kaptana gider. */
+  sendPrivate(playerId) {
+    const r = this.round;
+    if (!r || r.captainId !== playerId || !(this.phase === Phase.SIGNAL || this.phase === Phase.GUESS)) return;
+    this.send(playerId, {
+      type: 'captain',
+      key: r.key,
+      roles: r.board.map((c) => c.role),
+      hand: [...r.hand],
+      redraws: r.redraws,
+    });
+  }
+
+  // ───────────────────────── mesajlar ─────────────────────────
 
   handle(playerId, msg) {
     const p = this.players.get(playerId);
-    if (!p || p.left || !msg || typeof msg.type !== 'string') return;
+    if (!p || p.left || this.closed) return;
     try {
       switch (msg.type) {
-        case 'ready':
-          this.requirePhase(Phase.LOBBY, Phase.RUN_END);
-          p.ready = msg.ready === undefined ? !p.ready : Boolean(msg.ready);
-          break;
-        case 'set_mode':
-          this.requireHost(p);
-          this.requirePhase(Phase.LOBBY, Phase.RUN_END);
-          if (!['cards', 'free'].includes(msg.mode)) throw new GameError('INVALID_MODE');
-          this.mode = msg.mode;
-          break;
-        case 'redraw_hand':
-          this.requireCaptain(p);
-          if (this.mode !== 'cards' || !WORD_PHASES.has(this.phase)) throw new GameError('NOT_ALLOWED_IN_PHASE');
-          this.requireActive();
-          redrawHand(this);
-          this.emit('redraw', { playerId: p.id });
-          this.sendHand();
-          break;
-        case 'play_power':
-          playPower(this, p, msg.cardId);
-          break;
         case 'set_team':
-          this.requireHost(p);
-          this.requirePhase(Phase.LOBBY, Phase.RUN_END);
-          this.teamName = cleanLabel(msg.name, TEAM_MAX);
+          this.setTeam(p, msg.name);
           break;
-        case 'start':
-          this.requireHost(p);
-          this.startRun();
-          break;
-        case 'to_lobby':
-          this.requireHost(p);
-          this.requirePhase(Phase.RUN_END);
-          this.toLobby();
-          break;
-        case 'reorder':
-          this.requireHost(p);
-          this.reorder(msg.order);
+        case 'move':
+          this.movePlayer(p, msg.playerId, msg.dir);
           break;
         case 'shuffle':
-          this.requireHost(p);
-          this.requirePhase(Phase.LOBBY, Phase.RUN_END);
-          this.shuffle(this.order);
-          this.orderCustomized = true;
-          break;
-        case 'pause':
-          this.requireHost(p);
-          this.togglePause(msg.paused);
-          break;
-        case 'skip_reveal':
-          this.requireHost(p);
-          this.requireActive();
-          this.requirePhase(Phase.REVEAL);
-          this.afterReveal();
-          break;
-        case 'preview_signal':
-          this.previewSignal(p, msg.word);
-          return; // yayın gerekmez
-        case 'send_signal':
-          this.sendSignal(p, msg.word, { blank: msg.blank === true });
-          break;
-        case 'propose_guess':
-          this.proposeGuess(p, msg.word);
-          break;
-        case 'approve':
-          this.approve(p, msg.proposalId);
-          break;
-        case 'propose_pass':
-          this.proposePass(p);
-          break;
-        case 'request_bank_row':
-          this.requestBankRow(p);
-          break;
-        case 'vote_mole':
-          this.voteMole(p, msg.playerId);
+          this.shuffleOrder(p);
           break;
         case 'kick':
-          this.requireHost(p);
           this.kick(p, msg.playerId);
-          return;
-        case 'react':
-          this.react(p, msg.emoji);
+          break;
+        case 'start':
+          this.start(p);
+          break;
+        case 'to_lobby':
+          this.toLobby(p);
+          break;
+        case 'play_signal':
+          this.playSignal(p, msg.word);
+          break;
+        case 'redraw':
+          this.redraw(p);
+          break;
+        case 'token':
+          this.placeToken(p, msg.target);
+          break;
+        case 'next':
+          this.skipReveal(p);
           break;
         case 'leave':
           this.markLeft(p.id);
@@ -588,7 +402,7 @@ export class Room {
       }
     } catch (err) {
       if (!(err instanceof GameError)) throw err;
-      this.send(playerId, { type: 'error', code: err.code, detail: err.detail, about: msg.type });
+      this.send(playerId, { type: 'error', code: err.code, about: msg.type });
       return;
     }
     this.changed();
@@ -599,779 +413,444 @@ export class Room {
   }
 
   requirePhase(...phases) {
-    if (!phases.includes(this.phase)) throw new GameError('NOT_ALLOWED_IN_PHASE');
+    if (!phases.includes(this.phase)) throw new GameError('BAD_PHASE');
   }
 
-  requireActive() {
-    if (this.isPaused()) throw new GameError('PAUSED');
+  // ───────────────────────── lobi ─────────────────────────
+
+  setTeam(p, name) {
+    this.requireHost(p);
+    this.requirePhase(Phase.LOBBY, Phase.END);
+    const clean = cleanLabel(name, TEAM_MAX);
+    if (!clean) throw new GameError('TEAM_INVALID');
+    this.teamName = clean;
   }
 
-  requireCaptain(p) {
-    if (!this.word || this.word.captainId !== p.id) throw new GameError('NOT_ALLOWED_IN_PHASE');
+  movePlayer(p, targetId, dir) {
+    this.requireHost(p);
+    this.requirePhase(Phase.LOBBY, Phase.END);
+    const i = this.order.indexOf(targetId);
+    const j = i + (dir === 'up' ? -1 : 1);
+    if (i < 0 || j < 0 || j >= this.order.length) throw new GameError('BAD_MOVE');
+    [this.order[i], this.order[j]] = [this.order[j], this.order[i]];
   }
 
-  requireGuesser(p) {
-    if (!this.word || this.word.captainId === p.id) throw new GameError('NOT_ALLOWED_IN_PHASE');
+  shuffleOrder(p) {
+    this.requireHost(p);
+    this.requirePhase(Phase.LOBBY, Phase.END);
+    this.shuffle(this.order);
   }
 
-  rateLimit(p) {
-    const now = this.now();
-    if (now - p.lastProposalAt < this.config.proposalRateLimitMs) throw new GameError('RATE_LIMITED');
-    p.lastProposalAt = now;
+  kick(p, targetId) {
+    this.requireHost(p);
+    const target = this.players.get(targetId);
+    if (!target || target.left || target.id === p.id) throw new GameError('BAD_TARGET');
+    target.kicked = true;
+    this.disconnectPlayerFn(target.id);
+    this.emit('kick', { playerId: target.id, name: target.name });
+    this.markLeft(target.id);
   }
 
-  /**
-   * Hızlı tepki (👏 🔥 …). Kaptan kelime sürerken tepki veremez: konuşma yasağı gibi,
-   * tepkiyle de ipucu verilmesin.
-   */
-  react(p, emoji) {
-    const list = this.config.excitement?.reactions ?? [];
-    if (!list.includes(emoji)) throw new GameError('INVALID_REACTION');
-    if (this.word && WORD_PHASES.has(this.phase) && this.word.captainId === p.id) throw new GameError('CAPTAIN_SILENT');
-    const now = this.now();
-    if (now - (p.lastReactAt ?? -Infinity) < (this.config.excitement?.reactionRateLimitMs ?? 800)) throw new GameError('RATE_LIMITED');
-    p.lastReactAt = now;
-    this.emit('react', { playerId: p.id, emoji });
+  start(p) {
+    this.requireHost(p);
+    this.requirePhase(Phase.LOBBY, Phase.END);
+    if (this.connectedPlayers().length < this.config.minPlayers) throw new GameError('NOT_ENOUGH_PLAYERS');
+    this.startRun();
   }
 
-  /** Oda sahibi bir oyuncuyu çıkarır (ör. ekran başında olmayan biri onay eşiğini tıkıyorsa). */
-  kick(host, targetId) {
-    const t = this.players.get(targetId);
-    if (!t || t.left || t.id === host.id) throw new GameError('INVALID_KICK');
-    t.kicked = true;
-    this.send(t.id, { type: 'kicked' });
-    this.disconnectPlayerFn(t.id);
-    this.emit('kick', { playerId: t.id, name: t.name });
-    this.markLeft(t.id);
-  }
-
-  togglePause(paused) {
-    if (!ACTIVE_PHASES.has(this.phase)) throw new GameError('NOT_ALLOWED_IN_PHASE');
-    const want = paused === undefined ? !this.pauseReasons.has('host') : Boolean(paused);
-    if (want) this.pauseReasons.add('host');
-    else this.pauseReasons.delete('host');
-    this.emit(want ? 'paused' : 'resumed');
-    this.applyPause();
-    if (!this.isPaused() && this.phase === Phase.DISCUSSION) this.checkProposals();
-    if (!this.isPaused() && this.phase === Phase.MOLE_VOTE) this.checkMoleVoteComplete();
-  }
-
-  reorder(order) {
-    const current = new Set(this.order);
-    if (!Array.isArray(order) || order.length !== this.order.length || !order.every((id) => current.has(id)) || new Set(order).size !== order.length) {
-      throw new GameError('INVALID_ORDER');
-    }
-    const lastCaptain = this.run ? this.word?.captainId ?? this.order[this.run.captainCursor] : null;
-    this.order = [...order];
-    this.orderCustomized = true;
-    if (this.run) {
-      const idx = lastCaptain ? this.order.indexOf(lastCaptain) : -1;
-      this.run.captainCursor = idx >= 0 ? idx : Math.min(this.run.captainCursor, this.order.length - 1);
-    }
+  toLobby(p) {
+    this.requireHost(p);
+    this.requirePhase(Phase.END);
+    this.summary = null;
+    this.run = null;
+    this.round = null;
+    this.setPhase(Phase.LOBBY, null);
   }
 
   // ───────────────────────── oyun akışı ─────────────────────────
 
   startRun() {
-    this.requirePhase(Phase.LOBBY, Phase.RUN_END);
-    if (!this.teamName) throw new GameError('TEAM_NAME_REQUIRED');
-    if (this.connectedPlayers().length < this.config.minPlayers) throw new GameError('NOT_ENOUGH_PLAYERS');
-    if (!this.orderCustomized) this.shuffle(this.order); // kaptan sırası oyun başında rastgele
-    for (const p of this.players.values()) p.stats = emptyStats();
-    this.teamUsed = this.store?.usedSecrets(this.teamName) ?? new Set();
+    const c = this.config;
     this.run = {
-      lives: this.config.startLives,
-      bank: 0,
+      id: ++this.runSeq,
       score: 0,
-      stars: 0,
-      wordIndex: 0,
-      streak: 0,
-      bestStreak: 0,
+      lives: c.lives,
+      maxLives: c.lives,
+      hits: 0,
+      firstTry: 0,
+      roundNo: 0,
       captainCursor: -1,
-      usedSecrets: new Set(),
-      words: [],
-      participants: new Set(this.activePlayers().map((p) => p.id)),
-      powerHand: [],
+      used: new Set(),
+      history: [],
       startedAt: this.now(),
     };
+    for (const p of this.players.values()) p.stats = emptyStats();
     this.summary = null;
-    this.reveal = null;
-    this.pauseReasons.clear();
     this.emit('run_start');
-    for (let i = 0; i < (this.config.cards?.startPowerCards ?? 0); i++) drawPower(this, 'start');
-    this.startWord();
-  }
-
-  toLobby() {
-    this.setPhase(Phase.LOBBY, null);
-    this.run = null;
-    this.word = null;
-    this.reveal = null;
-    this.summary = null;
-    this.pauseReasons.clear();
-    for (const p of this.players.values()) p.ready = false;
-  }
-
-  tierIndexFor(wordIndex) {
-    let idx = 0;
-    this.config.tiers.forEach((t, i) => {
-      if (wordIndex >= t.fromWord) idx = i;
-    });
-    return idx;
+    this.startRound();
   }
 
   nextCaptain() {
+    const run = this.run;
     const n = this.order.length;
     for (let k = 1; k <= n; k++) {
-      const idx = (((this.run.captainCursor + k) % n) + n) % n;
+      const idx = (run.captainCursor + k + n) % n;
       const p = this.players.get(this.order[idx]);
-      if (p.connected) {
-        this.run.captainCursor = idx;
-        return p.id;
+      if (p?.connected) {
+        run.captainCursor = idx;
+        return p;
       }
     }
-    // Hiç bağlı oyuncu yoksa sıradakini al (oyun zaten duraklamış olur).
-    const idx = (((this.run.captainCursor + 1) % n) + n) % n;
-    this.run.captainCursor = idx;
-    return this.order[idx];
+    run.captainCursor = (run.captainCursor + 1 + n) % n;
+    return this.players.get(this.order[run.captainCursor]);
   }
 
-  pickPuzzle(tierIndex) {
+  startRound() {
+    const c = this.config;
     const run = this.run;
-    const team = this.teamUsed ?? new Set();
-    const attempts = [
-      (p) => run.usedSecrets.has(p.secret) || team.has(p.secret),
-      (p) => run.usedSecrets.has(p.secret),
-      () => false,
-    ];
-    for (const isUsed of attempts) {
-      const res = this.puzzles.pick(tierIndex, isUsed, this.rng);
-      if (res) return res;
-    }
-    throw new Error('Bulmaca havuzu boş');
-  }
-
-  startWord() {
-    const run = this.run;
-    run.wordIndex += 1;
-    const captainId = this.nextCaptain();
-    const tierIndex = this.tierIndexFor(run.wordIndex);
-    const tier = this.config.tiers[tierIndex];
-    const { puzzle } = this.pickPuzzle(tierIndex);
-    run.usedSecrets.add(puzzle.secret);
-
-    this.word = {
-      puzzle,
-      captainId,
-      tierIndex,
-      rowLimit: tier.rows,
-      board: [],
-      proposals: [],
-      used: new Set(),
-      guessesThisDiscussion: 0,
-      signalsUsed: 0,
-      chaosCard: null,
-      category: null,
-      moleId: null,
-      votes: new Map(),
-      moleVoteSkipped: false,
-      result: null,
+    run.roundNo += 1;
+    const level = this.levelFor(run.roundNo);
+    const captain = this.nextCaptain();
+    const board = this.deck.board(level, { size: c.boardSize, rng: this.rng, used: run.used });
+    for (const card of board) run.used.add(card.word);
+    this.round = {
+      key: `${run.id}:${run.roundNo}`,
+      no: run.roundNo,
+      level,
+      captainId: captain.id,
+      board: board.map((card) => ({ ...card, revealed: false, pickedAt: null })),
+      signals: [],
       hand: [],
-      discarded: new Set(),
-      handRedraws: 0,
-      blankCards: 0,
-      revealed: new Map(), // güç kartı "fener" ile açılan harfler
-      shield: false, // güç kartı "kalkan"
-      forbiddenPass: false, // güç kartı "anahtar"
+      redraws: c.redrawsPerRound,
+      tokens: new Map(),
+      lock: null,
+      picks: [],
+      result: null,
     };
-    this.reveal = null;
-    const { startWord, every } = this.config.chaos;
-    if (run.wordIndex >= startWord && (run.wordIndex - startWord) % every === 0) this.drawChaosCard();
-    // Altın kelime: kaos kartı olmayan bir kelimede ara sıra; bir satır eksik, çözülürse +1 can.
-    const fx = this.config.excitement ?? {};
-    if (!this.word.chaosCard && run.wordIndex >= (fx.goldenStartWord ?? Infinity) && this.rng() < (fx.goldenChance ?? 0)) {
-      this.word.golden = true;
-      this.word.rowLimit = Math.max(3, this.word.rowLimit - (fx.goldenRowPenalty ?? 1));
-    }
-
-    if (this.mode === 'cards') dealHand(this);
-    this.clearCaptainWait();
-    this.updatePlayersPause(Phase.WORD_SETUP);
-    this.setPhase(Phase.WORD_SETUP, this.config.setupSeconds);
-    this.emit('word_start', { wordIndex: run.wordIndex, captainId, chaosCard: this.word.chaosCard, golden: Boolean(this.word.golden) });
-    this.sendPrivate(captainId);
-    if (this.word.moleId) this.sendPrivate(this.word.moleId);
-  }
-
-  /** Kaos kartı (spec 6): koşulu sağlamayan kart atlanıp başkası çekilir. */
-  drawChaosCard() {
-    const w = this.word;
-    const chaos = this.config.chaos;
-    for (const card of this.shuffle([...chaos.cards])) {
-      if (card === 'mole') {
-        const candidates = this.guessers();
-        if (candidates.length < chaos.moleMinGuessers) continue;
-        w.moleId = candidates[Math.floor(this.rng() * candidates.length)].id;
-        w.chaosCard = 'mole';
-        return;
-      }
-      if (card === 'category') {
-        const { secret, forbidden } = w.puzzle;
-        const cats = this.shuffle(this.dictionary.categoryNames());
-        const cat = cats.find(
-          (c) => this.dictionary.categorySignals(c, secret.length, forbidden).length >= chaos.categoryMinSignals,
-        );
-        if (!cat) continue;
-        w.category = cat;
-        w.chaosCard = 'category';
-        return;
-      }
-      if (card === 'blind' || card === 'fast') {
-        w.chaosCard = card;
-        return;
-      }
-    }
-  }
-
-  signalSeconds() {
-    return this.word.chaosCard === 'fast' ? this.config.chaos.fastSignalSeconds : this.config.signalSeconds;
-  }
-
-  discussionSeconds() {
-    return this.word.chaosCard === 'fast' ? this.config.chaos.fastDiscussionSeconds : this.config.discussionSeconds;
-  }
-
-  enterSignal() {
-    this.word.proposals = [];
-    // Kalan satır 1 ise sinyal aşaması atlanır: son satır yalnızca tahmin içindir.
-    if (this.rowsRemaining() <= 1) {
-      this.enterDiscussion();
-      return;
-    }
-    this.setPhase(Phase.SIGNAL, this.signalSeconds());
-  }
-
-  enterDiscussion() {
-    this.word.discussionStartedAt = this.now();
-    this.word.proposals = [];
-    this.word.guessesThisDiscussion = 0;
-    this.setPhase(Phase.DISCUSSION, this.discussionSeconds());
-  }
-
-  colorsFor(word) {
-    const colors = score(word, this.word.puzzle.secret);
-    return this.word.chaosCard === 'blind' ? blindColors(colors) : colors;
-  }
-
-  // ── sinyal (spec 4.3) ──
-
-  validateSignal(word) {
-    const { secret, forbidden } = this.word.puzzle;
-    if (!this.word.forbiddenPass && [...word].some((c) => forbidden.includes(c))) return 'FORBIDDEN_LETTER';
-    if (word.length !== secret.length) return 'WRONG_LENGTH';
-    if (!isAlphabetic(word) || !this.dictionary.has(word)) return 'NOT_IN_DICTIONARY';
-    if (this.word.used.has(word)) return 'ALREADY_USED';
-    if (this.word.category && !this.dictionary.inCategory(word, this.word.category)) return 'WRONG_CATEGORY';
-    return null;
-  }
-
-  previewSignal(p, raw) {
-    if (!this.word || !WORD_PHASES.has(this.phase)) return;
-    if (this.word.captainId !== p.id) return;
-    const word = normalize(raw).slice(0, WORD_MAX);
-    const error = word ? this.validateSignal(word) : null;
-    const colors = word.length === this.word.puzzle.secret.length && isAlphabetic(word) ? this.colorsFor(word) : null;
-    this.send(p.id, { type: 'signal_preview', word, colors, error });
-  }
-
-  sendSignal(p, raw, { blank = false } = {}) {
-    this.requirePhase(Phase.SIGNAL);
-    this.requireCaptain(p);
-    this.requireActive();
-    const w = this.word;
-    const word = normalize(raw).slice(0, WORD_MAX);
-    // Kart modunda kaptan elinden oynar; boş kart ya da "anahtar" ile serbest yazabilir.
-    const fromHand = this.mode === 'cards' && w.hand.includes(word);
-    const useBlank = this.mode === 'cards' && !fromHand && !w.forbiddenPass;
-    if (useBlank && (!blank || w.blankCards <= 0)) throw new GameError(w.blankCards > 0 ? 'NOT_IN_HAND' : 'NO_BLANK_CARDS');
-    const error = this.validateSignal(word);
-    if (error) throw new GameError(error);
-    if (useBlank) w.blankCards -= 1;
-    w.forbiddenPass = false;
-    this.word.used.add(word); // yeni kart çekilmeden önce: oynanan kart desteye geri dönmesin
-    if (fromHand) replaceCard(this, word);
-    this.word.board.push({ type: 'signal', word, colors: this.colorsFor(word), byPlayerId: p.id });
-    this.word.signalsUsed += 1;
-    this.emit('signal', { word });
-    this.enterDiscussion();
-    this.sendHand();
-  }
-
-  // ── tartışma (spec 4.4) ──
-
-  validateGuess(word) {
-    if (word.length !== this.word.puzzle.secret.length) return 'WRONG_LENGTH';
-    if (!isAlphabetic(word) || !this.dictionary.has(word)) return 'NOT_IN_DICTIONARY';
-    if (this.word.used.has(word)) return 'ALREADY_USED';
-    return null;
-  }
-
-  newProposal(kind, p, word = null) {
-    const prop = { id: `q${++this.idSeq}`, kind, word, byPlayerId: p.id, approvals: [], createdAt: this.now() };
-    this.word.proposals.push(prop);
-    return prop;
-  }
-
-  /** Tahmin/pas için her oyuncunun tek aktif onayı vardır; kumbara onayı ayrıdır. */
-  castVote(p, prop) {
-    if (prop.kind !== 'bank') {
-      for (const other of this.word.proposals) {
-        if (other !== prop && other.kind !== 'bank') other.approvals = other.approvals.filter((id) => id !== p.id);
-      }
-    }
-    if (!prop.approvals.includes(p.id)) prop.approvals.push(p.id);
-    this.pruneProposals();
-  }
-
-  pruneProposals() {
-    this.word.proposals = this.word.proposals.filter((prop) => prop.approvals.length > 0);
-  }
-
-  proposeGuess(p, raw) {
-    this.requirePhase(Phase.DISCUSSION);
-    this.requireGuesser(p);
-    this.requireActive();
-    const word = normalize(raw).slice(0, WORD_MAX);
-    const error = this.validateGuess(word);
-    if (error) throw new GameError(error);
-    this.rateLimit(p);
-    let prop = this.word.proposals.find((x) => x.kind === 'guess' && x.word === word);
-    if (!prop) {
-      prop = this.newProposal('guess', p, word);
-      if (this.word.moleId !== p.id) {
-        p.stats.proposed += 1;
-        if (word === this.word.puzzle.secret) p.stats.proposedCorrect += 1;
-        if (this.word.puzzle.traps.includes(word)) p.stats.proposedTrap += 1;
-      }
-      this.emit('proposal', { playerId: p.id, kind: 'guess', word });
-    }
-    this.castVote(p, prop);
-    this.checkProposals();
-  }
-
-  proposePass(p) {
-    this.requirePhase(Phase.DISCUSSION);
-    this.requireGuesser(p);
-    this.requireActive();
-    if (this.rowsRemaining() <= 1) throw new GameError('NO_PASS_ON_LAST_ROW');
-    this.rateLimit(p);
-    let prop = this.word.proposals.find((x) => x.kind === 'pass');
-    if (!prop) {
-      prop = this.newProposal('pass', p);
-      this.emit('proposal', { playerId: p.id, kind: 'pass' });
-    }
-    this.castVote(p, prop);
-    this.checkProposals();
-  }
-
-  requestBankRow(p) {
-    this.requirePhase(Phase.DISCUSSION);
-    this.requireGuesser(p);
-    this.requireActive();
-    if (this.run.bank <= 0) throw new GameError('BANK_EMPTY');
-    this.rateLimit(p);
-    let prop = this.word.proposals.find((x) => x.kind === 'bank');
-    if (!prop) {
-      prop = this.newProposal('bank', p);
-      this.emit('proposal', { playerId: p.id, kind: 'bank' });
-    }
-    this.castVote(p, prop);
-    this.checkProposals();
-  }
-
-  approve(p, proposalId) {
-    this.requirePhase(Phase.DISCUSSION);
-    this.requireGuesser(p);
-    this.requireActive();
-    const prop = this.word.proposals.find((x) => x.id === proposalId);
-    if (!prop) throw new GameError('PROPOSAL_NOT_FOUND');
-    if (prop.approvals.includes(p.id)) {
-      // Onayı geri çek
-      prop.approvals = prop.approvals.filter((id) => id !== p.id);
-      this.pruneProposals();
-      return;
-    }
-    if (prop.kind === 'pass' && this.rowsRemaining() <= 1) throw new GameError('NO_PASS_ON_LAST_ROW');
-    this.castVote(p, prop);
-    this.checkProposals();
-  }
-
-  /** Eşiğe ilk ulaşan öneri gönderilir; açık olan diğer öneriler silinir. */
-  checkProposals() {
-    if (this.phase !== Phase.DISCUSSION || this.isPaused()) return;
-    const guessers = new Set(this.guessers().map((g) => g.id));
-    const T = guessers.size;
-    if (!T) return;
-    const need = Math.floor(T / 2) + 1;
-    for (const prop of [...this.word.proposals]) {
-      const count = prop.approvals.filter((id) => guessers.has(id)).length;
-      if (prop.kind === 'bank') {
-        if (count >= T) this.executeBank(prop);
-        continue;
-      }
-      if (count >= need) {
-        if (prop.kind === 'guess') this.executeGuess(prop);
-        else this.executePass();
-        return;
-      }
-    }
-  }
-
-  executeBank(prop) {
-    this.word.proposals = this.word.proposals.filter((x) => x !== prop);
-    if (this.run.bank <= 0) return;
-    this.run.bank -= 1;
-    this.word.rowLimit += 1;
-    this.emit('bank_row');
-  }
-
-  executePass() {
-    this.word.proposals = [];
-    this.emit('pass');
+    this.round.hand = this.drawHand(this.round, board.map((b) => b.word));
+    captain.stats.captainRounds += 1;
+    this.emit('round', { no: run.roundNo, captainId: captain.id, level: level.name });
     this.enterSignal();
   }
 
-  executeGuess(prop) {
-    const w = this.word;
-    const { secret, traps } = w.puzzle;
-    w.proposals = [];
-    const word = prop.word;
-    let result = word === secret ? 'correct' : traps.includes(word) ? 'trap' : 'wrong';
-    if (result === 'trap' && w.shield) {
-      // Güç kartı "kalkan": tuzak can götürmez, yanlış tahmin gibi sayılır.
-      w.shield = false;
-      result = 'shielded';
-      this.emit('shield', { word });
-    }
-    w.used.add(word);
-    w.board.push({ type: 'guess', word, colors: this.colorsFor(word), byPlayerId: prop.byPlayerId, approvals: prop.approvals, result });
-
-    const proposer = this.players.get(prop.byPlayerId);
-    if (proposer && w.moleId !== proposer.id) {
-      proposer.stats.submitted += 1;
-      if (result === 'correct') proposer.stats.submittedCorrect += 1;
-      if (result === 'trap') proposer.stats.submittedTrap += 1;
-    }
-
-    if (result === 'correct') return this.finishWord('solved');
-    if (result === 'trap') return this.finishWord('trap');
-
-    if (result === 'wrong') this.emit('wrong_guess', { word });
-    if (this.rowsRemaining() <= 0) return this.finishWord('rows');
-    w.guessesThisDiscussion += 1;
-    if (w.guessesThisDiscussion >= this.config.maxGuessesPerDiscussion) this.enterSignal();
-    // aksi halde tartışma sürer, süre sıfırlanmaz
+  enterSignal() {
+    const r = this.round;
+    r.tokens.clear();
+    this.cancelLock();
+    this.setPhase(Phase.SIGNAL, r.level.signalSeconds ?? this.config.signalSeconds);
+    this.sendPrivate(r.captainId);
   }
 
-  // ── kelime sonu (spec 4.5) ──
+  enterGuess() {
+    const r = this.round;
+    r.tokens.clear();
+    this.cancelLock();
+    this.setPhase(Phase.GUESS, r.level.guessSeconds ?? this.config.guessSeconds);
+    this.sendPrivate(r.captainId);
+  }
 
-  finishWord(result) {
+  /** Tam el: sıfatlar + hedefin kategorisinden kart(lar) + karışık kartlar. */
+  drawHand(r, avoid) {
+    const c = this.config;
+    const kinCategory = r.board.find((b) => b.role === 'target')?.category;
+    return this.deck.draw({ count: c.handSize, nitelik: c.handNitelik, kin: c.handKin ?? 0, kinCategory, avoid, rng: this.rng });
+  }
+
+  /** Oynanan kartın yerine aynı türden (nitelik / kart) yenisi gelir. */
+  refill(r, played) {
+    const isNitelik = this.deck.nitelik.includes(played);
+    const avoid = [...r.board.map((b) => b.word), ...r.hand, ...r.signals.map((s) => s.word)];
+    const [card] = this.deck.draw({ count: 1, nitelik: isNitelik ? 1 : 0, avoid, rng: this.rng });
+    if (card) r.hand.push(card);
+  }
+
+  commitSignal(word, auto) {
+    const r = this.round;
+    const idx = r.hand.indexOf(word);
+    r.hand.splice(idx, 1);
+    r.signals.push({ word, auto });
+    this.refill(r, word);
+    this.emit('signal', { word, n: r.signals.length, captainId: r.captainId, auto });
+    this.enterGuess();
+  }
+
+  playSignal(p, raw) {
+    this.requirePhase(Phase.SIGNAL);
+    if (!this.isCaptain(p.id)) throw new GameError('NOT_CAPTAIN');
+    if (this.waiting) throw new GameError('WAITING_PLAYERS');
+    const word = normalize(raw);
+    if (!this.round.hand.includes(word)) throw new GameError('NOT_IN_HAND');
+    this.commitSignal(word, false);
+  }
+
+  signalTimeout() {
+    const r = this.round;
+    const captain = this.players.get(r.captainId);
+    if (!captain?.connected) {
+      this.cancelRound('captain_away');
+      return;
+    }
+    const word = r.hand[Math.floor(this.rng() * r.hand.length)];
+    this.commitSignal(word, true);
+  }
+
+  redraw(p) {
+    this.requirePhase(Phase.SIGNAL);
+    if (!this.isCaptain(p.id)) throw new GameError('NOT_CAPTAIN');
+    const r = this.round;
+    if (r.redraws <= 0) throw new GameError('NO_REDRAWS');
+    const avoid = [...r.board.map((b) => b.word), ...r.signals.map((s) => s.word), ...r.hand];
+    const hand = this.drawHand(r, avoid);
+    if (hand.length < this.config.handSize) throw new GameError('DECK_EMPTY');
+    r.hand = hand;
+    r.redraws -= 1;
+    this.emit('redraw', { captainId: p.id });
+    this.sendPrivate(p.id);
+  }
+
+  placeToken(p, target) {
+    this.requirePhase(Phase.GUESS);
+    if (this.isCaptain(p.id)) throw new GameError('CAPTAIN_CANNOT_PICK');
+    const r = this.round;
+    const now = this.now();
+    if (now - p.lastTokenAt < (this.config.tokenRateLimitMs ?? 0)) throw new GameError('RATE_LIMITED');
+    p.lastTokenAt = now;
+    if (target === null || target === undefined) {
+      r.tokens.delete(p.id);
+    } else if (target === PASS) {
+      r.tokens.set(p.id, PASS);
+    } else {
+      const i = Number(target);
+      if (!Number.isInteger(i) || i < 0 || i >= r.board.length || r.board[i].revealed) throw new GameError('BAD_TARGET');
+      r.tokens.set(p.id, i);
+    }
+    this.checkConsensus();
+  }
+
+  /** Bütün bağlı tahmincilerin jetonu aynı yerdeyse geri sayım başlar; biri ayrılırsa durur. */
+  checkConsensus() {
+    const r = this.round;
+    if (this.phase !== Phase.GUESS || !r || this.waiting) {
+      this.cancelLock();
+      return;
+    }
+    const gs = this.guessers();
+    let target;
+    for (const g of gs) {
+      const t = r.tokens.get(g.id);
+      if (t === undefined || (target !== undefined && t !== target)) {
+        this.cancelLock();
+        return;
+      }
+      target = t;
+    }
+    if (target === undefined) {
+      this.cancelLock();
+      return;
+    }
+    if (r.lock && r.lock.target === target) return;
+    this.cancelLock();
+    const ms = this.config.lockSeconds * 1000;
+    r.lock = { target, endsAt: this.now() + ms };
+    this.lockTimer = this.setTimer(() => {
+      this.lockTimer = null;
+      this.resolvePick(target, 'consensus');
+    }, ms);
+  }
+
+  cancelLock() {
+    this.clearTimer(this.lockTimer);
+    this.lockTimer = null;
+    if (this.round) this.round.lock = null;
+  }
+
+  /** Karar süresi doldu: en çok jetonun olduğu yer seçilir; eşitlik ya da boşluk pas sayılır. */
+  resolveByPlurality() {
+    const r = this.round;
+    const counts = new Map();
+    for (const g of this.guessers()) {
+      const t = r.tokens.get(g.id);
+      if (t !== undefined) counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+    let best = null;
+    let bestN = 0;
+    let tie = false;
+    for (const [t, n] of counts) {
+      if (n > bestN) {
+        best = t;
+        bestN = n;
+        tie = false;
+      } else if (n === bestN) tie = true;
+    }
+    this.resolvePick(best === null || tie ? PASS : best, 'timeout');
+  }
+
+  resolvePick(target, reason) {
+    const r = this.round;
     const run = this.run;
-    const w = this.word;
-    const cfg = this.config;
-    this.clearCaptainWait();
-    w.result = result;
-    w.proposals = [];
-    const rowsUsed = w.board.length;
-    const outcome = { bankGained: 0, star: false, lifeGained: false, lifeLost: false };
-
-    const fx = cfg.excitement ?? {};
-    const addBank = (n) => {
-      const before = run.bank;
-      run.bank = Math.min(cfg.bankMax, run.bank + n);
-      return run.bank - before;
-    };
-    if (result === 'solved') {
-      outcome.bankGained = addBank(Math.max(0, w.rowLimit - rowsUsed));
-      run.score += 1;
-      run.streak += 1;
-      run.bestStreak = Math.max(run.bestStreak, run.streak);
-      outcome.streak = run.streak;
-      const cards = cfg.cards ?? {};
-      outcome.powers = [];
-      // Seri: üst üste her N çözümde bonus (kumbara ve/veya güç kartı)
-      if (fx.streakEvery && run.streak % fx.streakEvery === 0) {
-        outcome.streakBonus = fx.streakBankBonus ? addBank(fx.streakBankBonus) : 0;
-        outcome.bankGained += outcome.streakBonus;
-        outcome.streakReward = true;
-        if (cards.powerOnStreak) outcome.powers.push(drawPower(this, 'streak'));
+    this.cancelLock();
+    const n = r.signals.length;
+    if (target === PASS) {
+      r.picks.push({ pass: true, reason });
+      this.emit('pass', { reason, n });
+      this.nextSignalOrFail();
+      return;
+    }
+    const card = r.board[target];
+    card.revealed = true;
+    card.pickedAt = n;
+    r.picks.push({ index: target, word: card.word, role: card.role, reason });
+    this.emit('flip', { index: target, word: card.word, role: card.role, reason, n });
+    if (card.role === 'target') {
+      const pts = this.config.points;
+      const points = pts[Math.min(n, pts.length) - 1] ?? 0;
+      run.score += points;
+      run.hits += 1;
+      if (n === 1) run.firstTry += 1;
+      const captain = this.players.get(r.captainId);
+      if (captain) {
+        captain.stats.captainHits += 1;
+        captain.stats.captainPoints += points;
       }
-      // Yıldırım: tartışma başladıktan kısa süre içinde çözüm
-      const elapsed = this.now() - (w.discussionStartedAt ?? 0);
-      if (fx.lightningSeconds && this.phase === Phase.DISCUSSION && elapsed <= fx.lightningSeconds * 1000) {
-        outcome.lightning = true;
-        if (fx.lightningBankBonus) outcome.bankGained += addBank(fx.lightningBankBonus);
-        if (cards.powerOnLightning) outcome.powers.push(drawPower(this, 'lightning'));
-      }
-      // Altın kelime: +1 can (can doluysa +2 kumbara)
-      if (w.golden && cfg.cards?.powerOnGolden) outcome.powers.push(drawPower(this, 'golden'));
-      if (w.golden) {
-        if (run.lives < cfg.maxLives) {
-          run.lives += 1;
-          outcome.goldenLife = true;
-        } else outcome.bankGained += addBank(2);
-        outcome.golden = true;
-      }
-      if (w.signalsUsed <= cfg.starMaxSignals) {
-        run.stars += 1;
-        outcome.star = true;
-      }
-      if (run.score % cfg.lifeEverySolved === 0 && run.lives < cfg.maxLives) {
+      let lifeGain = false;
+      const every = this.config.lifeEveryHits;
+      if (every && run.hits % every === 0 && run.lives < run.maxLives) {
         run.lives += 1;
-        outcome.lifeGained = true;
+        lifeGain = true;
       }
-    } else if (result === 'trap' || result === 'rows') {
-      run.lives = Math.max(0, run.lives - 1);
-      outcome.lifeLost = true;
-      outcome.streakLost = run.streak;
-      run.streak = 0;
+      this.endRound('hit', { points, lifeGain, index: target });
+    } else if (card.role === 'parasite') {
+      run.lives -= 1;
+      this.endRound('parasite', { index: target });
+    } else {
+      this.nextSignalOrFail();
     }
-    if (outcome.powers) outcome.powers = outcome.powers.filter(Boolean);
-    w.outcome = outcome;
+  }
 
-    const captain = this.players.get(w.captainId);
-    if (captain && result !== 'cancelled') {
-      captain.stats.captainWords += 1;
-      if (result === 'solved') {
-        captain.stats.captainSolved += 1;
-        captain.stats.captainRowsSolved += rowsUsed;
-        if (outcome.star) captain.stats.captainStars += 1;
-      }
+  nextSignalOrFail() {
+    const r = this.round;
+    if (r.signals.length >= this.config.maxSignals) {
+      this.run.lives -= 1;
+      this.endRound('silence', {});
+    } else {
+      this.enterSignal();
     }
-    const mole = w.moleId ? this.players.get(w.moleId) : null;
-    if (mole) {
-      mole.stats.moleTurns += 1;
-      if (result === 'trap') mole.stats.moleSuccess += 1;
-    }
+  }
 
-    run.words.push({
-      wordIndex: run.wordIndex,
-      captainId: w.captainId,
+  endRound(kind, extra) {
+    const r = this.round;
+    const run = this.run;
+    r.tokens.clear();
+    r.result = { kind, points: 0, lifeGain: false, ...extra };
+    const captain = this.players.get(r.captainId);
+    run.history.push({
+      no: r.no,
+      level: r.level.name,
+      captainId: r.captainId,
       captainName: captain?.name ?? '?',
-      secret: w.puzzle.secret,
-      traps: w.puzzle.traps,
-      forbidden: w.puzzle.forbidden,
-      result,
-      rowsUsed,
-      rowLimit: w.rowLimit,
-      signalsUsed: w.signalsUsed,
-      chaosCard: w.chaosCard,
-      category: w.category,
-      star: outcome.star,
-      golden: Boolean(w.golden),
-      lightning: Boolean(outcome.lightning),
+      signals: r.signals.map((s) => s.word),
+      target: r.board.find((c) => c.role === 'target')?.word,
+      picks: r.picks.filter((pk) => !pk.pass).map((pk) => ({ word: pk.word, role: pk.role })),
+      kind,
+      points: r.result.points,
     });
-    this.store?.markUsed(this.teamName, w.puzzle.secret);
-    this.teamUsed?.add(w.puzzle.secret);
-    this.emit('word_end', { result, wordIndex: run.wordIndex, lives: run.lives, ...outcome });
-
-    if (result === 'cancelled') {
-      // Kaptan dönmedi: can kaybı yok, sıradaki kaptanla yeni kelime.
-      this.startWord();
-      return;
-    }
-    if (mole && mole.connected && !mole.left) {
-      this.setPhase(Phase.MOLE_VOTE, cfg.moleVoteSeconds);
-      return;
-    }
-    if (mole) w.moleVoteSkipped = true;
-    this.enterReveal();
-  }
-
-  cancelWord() {
-    if (!this.word || !WORD_PHASES.has(this.phase)) return;
-    this.finishWord('cancelled');
-  }
-
-  // ── köstebek oylaması (spec 6.1) ──
-
-  voteTargets(voterId) {
-    return this.activePlayers().filter((p) => p.id !== voterId && p.id !== this.word.captainId);
-  }
-
-  voteMole(p, targetId) {
-    this.requirePhase(Phase.MOLE_VOTE);
-    this.requireActive();
-    if (!this.voteTargets(p.id).some((t) => t.id === targetId)) throw new GameError('INVALID_VOTE');
-    this.word.votes.set(p.id, targetId);
-    this.checkMoleVoteComplete();
-  }
-
-  checkMoleVoteComplete() {
-    if (this.phase !== Phase.MOLE_VOTE || this.isPaused()) return;
-    const voters = this.connectedPlayers();
-    if (voters.length && voters.every((v) => this.word.votes.has(v.id))) this.resolveMoleVote();
-  }
-
-  resolveMoleVote() {
-    const w = this.word;
-    const tally = new Map();
-    for (const target of w.votes.values()) tally.set(target, (tally.get(target) || 0) + 1);
-    let max = 0;
-    for (const n of tally.values()) max = Math.max(max, n);
-    const top = [...tally.entries()].filter(([, n]) => n === max).map(([id]) => id);
-    const caught = max > 0 && top.length === 1 && top[0] === w.moleId; // eşitlikte yakalanmamış sayılır
-    w.moleCaught = caught;
-
-    for (const [voterId, target] of w.votes) {
-      if (target === w.moleId) this.players.get(voterId).stats.moleCorrectVotes += 1;
-    }
-    const mole = this.players.get(w.moleId);
-    if (caught) {
-      mole.stats.moleCaught += 1;
-      if (this.run.lives < this.config.maxLives) {
-        this.run.lives += 1;
-        w.outcome.moleLife = true;
-      }
-    } else if (w.result === 'trap') {
-      mole.stats.masterMole += 1;
-    }
-    this.emit('mole_result', { caught });
-    this.enterReveal();
-  }
-
-  // ── sonuç (spec 4.6'daki hesaplaşma kısaltıldı: kısa sonuç anı, sonra otomatik devam) ──
-
-  enterReveal() {
-    const w = this.word;
-    const p = w.puzzle;
-    this.reveal = {
-      wordIndex: this.run.wordIndex,
-      secret: p.secret,
-      traps: p.traps,
-      forbidden: p.forbidden,
-      pos: p.pos,
-      result: w.result,
-      captainId: w.captainId,
-      ...w.outcome,
-      moleId: w.moleId,
-      moleCaught: w.moleCaught ?? false,
-      moleVoteSkipped: w.moleVoteSkipped,
-      votes: w.moleId ? Object.fromEntries(w.votes) : null,
-    };
+    this.emit('round_end', { kind, points: r.result.points, lives: run.lives, lifeGain: r.result.lifeGain, no: r.no });
     this.setPhase(Phase.REVEAL, this.config.revealSeconds);
+  }
+
+  /** Kaptan koptu ya da ayrıldı: tur cezasız yenilenir. */
+  cancelRound(reason) {
+    this.endRound('cancelled', { reason });
+  }
+
+  skipReveal(p) {
+    this.requireHost(p);
+    this.requirePhase(Phase.REVEAL);
+    if (this.waiting) throw new GameError('WAITING_PLAYERS');
+    this.afterReveal();
   }
 
   afterReveal() {
     if (this.run.lives <= 0) this.endRun();
-    else this.startWord();
+    else this.startRound();
   }
-
-  // ── oyun sonu (spec 4.7, 8) ──
 
   endRun() {
     const run = this.run;
-    this.setPhase(Phase.RUN_END, null);
-    this.pauseReasons.clear();
-    const record = this.store?.recordRun(this.teamName, run.score, run.stars) ?? null;
-    const participants = [...run.participants].map((id) => this.players.get(id)).filter(Boolean);
+    const record = this.store.recordRun(this.teamName, run.score);
+    let bestCaptain = null;
+    for (const id of this.order) {
+      const p = this.players.get(id);
+      if (!p || !p.stats.captainRounds) continue;
+      const s = p.stats;
+      if (!bestCaptain || s.captainPoints > bestCaptain.points || (s.captainPoints === bestCaptain.points && s.captainHits > bestCaptain.hits)) {
+        bestCaptain = { playerId: p.id, name: p.name, points: s.captainPoints, hits: s.captainHits, rounds: s.captainRounds };
+      }
+    }
     this.summary = {
-      teamName: this.teamName,
       score: run.score,
-      stars: run.stars,
-      bestStreak: run.bestStreak,
-      words: run.words,
+      rounds: run.roundNo,
+      hits: run.hits,
+      firstTry: run.firstTry,
       record,
-      awards: computeAwards(participants),
-      players: participants.map((p) => ({ id: p.id, name: p.name, stats: p.stats })),
+      bestCaptain: bestCaptain && bestCaptain.points > 0 ? bestCaptain : null,
+      history: run.history,
+      durationMs: this.now() - run.startedAt,
     };
-    this.word = null;
-    this.reveal = null;
-    this.emit('run_end', { score: run.score, stars: run.stars, newRecord: record?.isNewRecord ?? false });
+    this.round = null;
+    this.emit('run_end', { score: run.score, newRecord: record.isNewRecord });
+    this.setPhase(Phase.END, null);
   }
 
-  // ───────────────────────── ortak durum ─────────────────────────
+  // ───────────────────────── durum ─────────────────────────
 
-  /** Herkese eşitlenen durum. Gizli kelime, tuzaklar ve köstebek burada YOKTUR (hesaplaşma hariç). */
   publicState() {
+    const r = this.round;
     const run = this.run;
-    const w = this.word;
-    const team = this.teamName && this.store ? this.store.peekTeam(this.teamName) : null;
-    let word = null;
-    if (w) {
-      const guessers = this.guessers();
-      word = {
-        captainId: w.captainId,
-        length: w.puzzle.secret.length,
-        trapCount: w.puzzle.traps.length,
-        forbiddenCount: w.puzzle.forbidden.length,
-        rowLimit: w.rowLimit,
-        rowsRemaining: this.rowsRemaining(),
-        handCount: this.mode === 'cards' ? w.hand.length : null,
-        revealed: [...w.revealed].map(([pos, letter]) => ({ pos, letter })),
-        shield: w.shield,
-        forbiddenPass: w.forbiddenPass,
-        tier: { level: w.tierIndex + 1, name: this.config.tiers[w.tierIndex]?.name ?? '' },
-        // Tuzağın ayrıldığı konum (harfleri değil). Tahmincilere "bu harfe dikkat" uyarısı için.
-        trapPos: this.config.showTrapPosition ? w.puzzle.pos : null,
-        chaosCard: w.chaosCard,
-        category: w.category,
-        board: w.board.map(({ type, word: text, colors, byPlayerId, result, approvals }) => ({
-          type,
-          word: text,
-          colors,
-          byPlayerId,
-          approvals,
-          result,
-        })),
-        proposals: w.proposals.map(({ id, kind, word: text, byPlayerId, approvals }) => ({ id, kind, word: text, byPlayerId, approvals })),
-        guessesThisDiscussion: w.guessesThisDiscussion,
-        maxGuesses: this.config.maxGuessesPerDiscussion,
-        guesserCount: guessers.length,
-        thresholds: { guess: Math.floor(guessers.length / 2) + 1, bank: guessers.length },
-        votedIds: this.phase === Phase.MOLE_VOTE ? [...w.votes.keys()] : null,
-        hasMole: Boolean(w.moleId),
-        golden: Boolean(w.golden),
-      };
-    }
+    const reveal = this.phase === Phase.REVEAL;
+    const team = this.store.peekTeam(this.teamName);
     return {
       type: 'state',
       code: this.code,
       phase: this.phase,
       serverNow: this.now(),
       endsAt: this.endsAt,
-      phaseDuration: this.phaseDuration ?? null,
-      pausedRemaining: this.pausedRemaining,
-      paused: this.isPaused(),
-      pauseReasons: [...this.pauseReasons],
-      captainAwayUntil: this.captainAwayUntil,
+      phaseMs: this.phaseMs,
+      waiting: this.waiting,
       hostId: this.hostId,
       teamName: this.teamName,
-      devMode: this.config.devMode,
       minPlayers: this.config.minPlayers,
       maxPlayers: this.config.maxPlayers,
-      reactions: this.config.excitement?.reactions ?? [],
-      mode: this.mode,
-      players: this.orderedPlayers().map((p) => ({ id: p.id, name: p.name, connected: p.connected, ready: p.ready })),
-      run: run
-        ? {
-            lives: run.lives,
-            maxLives: this.config.maxLives,
-            bank: run.bank,
-            bankMax: this.config.bankMax,
-            score: run.score,
-            stars: run.stars,
-            wordIndex: run.wordIndex,
-            lifeEverySolved: this.config.lifeEverySolved,
-            streak: run.streak,
-            bestStreak: run.bestStreak,
-            powerHand: run.powerHand,
-            powerHandMax: this.config.cards?.powerHandMax ?? 0,
-          }
-        : null,
-      record: team ? { bestScore: team.bestScore, bestStars: team.bestStars, runs: team.runs } : null,
-      word,
-      reveal: this.reveal,
+      players: this.order
+        .map((id) => this.players.get(id))
+        .filter(Boolean)
+        .map((p) => ({ id: p.id, name: p.name, color: p.color, connected: p.connected })),
+      record: team ? { bestScore: team.bestScore, runs: team.runs } : null,
+      run: run && {
+        id: run.id,
+        score: run.score,
+        lives: run.lives,
+        maxLives: run.maxLives,
+        hits: run.hits,
+        roundNo: run.roundNo,
+        lifeEveryHits: this.config.lifeEveryHits,
+        history: run.history,
+      },
+      round: r && {
+        key: r.key,
+        no: r.no,
+        level: { name: r.level.name, index: r.level.index, parasites: r.board.filter((c) => c.role === 'parasite').length },
+        captainId: r.captainId,
+        board: r.board.map((c) => ({ word: c.word, revealed: c.revealed, role: c.revealed || reveal ? c.role : null })),
+        signals: r.signals,
+        maxSignals: this.config.maxSignals,
+        points: this.config.points,
+        handCount: r.hand.length,
+        redraws: r.redraws,
+        tokens: Object.fromEntries(r.tokens),
+        lock: r.lock,
+        result: r.result,
+      },
       summary: this.summary,
       events: this.events,
     };
@@ -1380,34 +859,8 @@ export class Room {
   close() {
     this.closed = true;
     this.clearTimer(this.phaseTimer);
-    this.clearTimer(this.captainTimer);
+    this.clearTimer(this.lockTimer);
     this.clearTimer(this.hostTimer);
     for (const p of this.players.values()) this.clearTimer(p.leaveTimer);
   }
-}
-
-/** Oyun sonu ödülleri (spec 8). Eşitlikte paylaşılır; ölçütü karşılayan yoksa gösterilmez. */
-export function computeAwards(players) {
-  const awards = [];
-  const pick = (key, title, description, metric, better, eligible) => {
-    const pool = players.filter(eligible);
-    if (!pool.length) return;
-    const best = pool.reduce((acc, p) => (better(metric(p), acc) ? metric(p) : acc), metric(pool[0]));
-    const winners = pool.filter((p) => metric(p) === best);
-    awards.push({ key, title, description, value: best, winners: winners.map((p) => ({ id: p.id, name: p.name })) });
-  };
-  const s = (p) => p.stats;
-  pick(
-    'legend_captain',
-    'Efsane Kaptan',
-    'Çözülen kelime başına en az satır',
-    (p) => Math.round((s(p).captainRowsSolved / s(p).captainSolved) * 100) / 100,
-    (a, b) => a < b,
-    (p) => s(p).captainSolved >= 1,
-  );
-  pick('oracle', 'Kâhin', 'En çok doğru tahmin öneren', (p) => s(p).proposedCorrect, (a, b) => a > b, (p) => s(p).proposedCorrect >= 1);
-  pick('trapper', 'Tuzakçı', 'En çok tuzak öneren', (p) => s(p).proposedTrap, (a, b) => a > b, (p) => s(p).proposedTrap >= 1);
-  pick('mole_hunter', 'Köstebek Avcısı', 'Köstebeğe en çok doğru oy veren', (p) => s(p).moleCorrectVotes, (a, b) => a > b, (p) => s(p).moleCorrectVotes >= 1);
-  pick('master_mole', 'Usta Köstebek', 'Takımı tuzağa düşürüp yakalanmayan', (p) => s(p).masterMole, (a, b) => a > b, (p) => s(p).masterMole >= 1);
-  return awards;
 }

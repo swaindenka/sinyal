@@ -1,6 +1,6 @@
 import { loadConfig } from '../server/config.js';
-import { Dictionary, PuzzleBank } from '../server/data.js';
-import { Room } from '../server/room.js';
+import { Deck } from '../server/deck.js';
+import { Room, PASS } from '../server/room.js';
 import { TeamStore } from '../server/store.js';
 
 export class FakeClock {
@@ -45,54 +45,20 @@ export function seeded(seed = 1) {
   };
 }
 
-export const WORDS = [
-  'KABAK', 'KAPAK', 'KAVAK', 'KAZAK', 'KAYAK', 'KAÇAK', 'YÜREK', 'KÜREK', 'KAĞIT', 'KAYIT',
-  'ŞEHİR', 'ŞEHİT', 'TANIM', 'TARIM', 'BAVUL', 'DAVUL', 'KALAN', 'YALAN',
-  'MASAL', 'TATLI', 'ARMUT', 'ELMAS', 'SİNEK', 'KÖPEK', 'ASLAN', 'ZEBRA', 'LİMON', 'ÇİLEK',
-  'KİRAZ', 'TAVUK', 'HOROZ', 'ÖRDEK', 'KUZEY', 'GÜNEY', 'DOLAP', 'SALON', 'ODUNA', 'MERAK',
-  'ÇORBA', 'PİLAV', 'KÖFTE', 'SİMİT', 'HELVA', 'LOKUM', 'MANTI', 'ŞEKER', 'KAVUN', 'LAVAŞ', 'ÇALIM',
-];
-
-export const CATEGORIES = { yemek: ['LİMON', 'ÇİLEK', 'KİRAZ', 'ARMUT', 'TATLI', 'ÇORBA', 'PİLAV', 'KÖFTE', 'SİMİT', 'HELVA', 'LOKUM', 'MANTI', 'ŞEKER', 'KAVUN'] };
-
-function puzzle(secret, traps, pos) {
-  const forbidden = [secret[pos], ...traps.map((t) => t[pos])];
-  return { id: `${secret}:${traps.join(',')}`, secret, traps, forbidden, pos, length: secret.length, consonantOnly: true, rank: 10, difficulty: 30, approved: true };
-}
-
-export const PUZZLES = [
-  puzzle('KABAK', ['KAPAK'], 2),
-  puzzle('YÜREK', ['KÜREK'], 0),
-  puzzle('KAĞIT', ['KAYIT'], 2),
-  puzzle('ŞEHİR', ['ŞEHİT'], 4),
-  puzzle('TANIM', ['TARIM'], 2),
-  puzzle('BAVUL', ['DAVUL'], 0),
-  puzzle('KALAN', ['YALAN'], 0),
-];
+/** Gerçek deste; testler kelimelere değil rollere bakar. */
+export const deck = Deck.load();
 
 export function testConfig(overrides = {}) {
-  const config = loadConfig({ dev: false });
-  // Testlerde bonuslar varsayılan kapalı; ilgili testler açıkça açar.
-  const quiet = { streakBankBonus: 0, lightningBankBonus: 0, goldenChance: 0 };
-  return {
-    ...config,
-    ...overrides,
-    chaos: { ...config.chaos, ...(overrides.chaos || {}) },
-    excitement: { ...config.excitement, ...quiet, ...(overrides.excitement || {}) },
-    // Eski testler serbest yazma moduyla çalışır; kart modu testleri bunu açıkça açar.
-    cards: { ...config.cards, defaultMode: 'free', startPowerCards: 0, ...(overrides.cards || {}) },
-  };
+  return { ...loadConfig(), tokenRateLimitMs: 0, ...overrides };
 }
 
-/** Oyuncuları katılmış, takım adı belirlenmiş bir oda kurar. */
-export function makeRoom({ players = 3, config = testConfig({ chaos: { startWord: 999 } }), seed = Number(process.env.TEST_SEED || 7), puzzles = PUZZLES, store = new TeamStore() } = {}) {
+export function makeRoom({ players = 3, config = testConfig(), seed = Number(process.env.TEST_SEED || 7), store = new TeamStore() } = {}) {
   const clock = new FakeClock();
   const sent = [];
   const room = new Room({
     code: 'TEST',
     config,
-    dictionary: Dictionary.fromWords(WORDS, CATEGORIES),
-    puzzles: new PuzzleBank(puzzles, config),
+    deck,
     store,
     clock,
     rng: seeded(seed),
@@ -100,37 +66,46 @@ export function makeRoom({ players = 3, config = testConfig({ chaos: { startWord
   });
   const ps = [];
   for (let i = 0; i < players; i++) ps.push(room.join({ name: `Oyuncu${i + 1}` }));
-  room.handle(ps[0].id, { type: 'set_team', name: 'Test Takımı' });
   const h = {
     room,
     clock,
     sent,
     ps,
     store,
-    captain: () => room.players.get(room.word.captainId),
+    config,
+    host: () => room.players.get(room.hostId),
+    captain: () => room.players.get(room.round.captainId),
     guessers: () => room.guessers(),
-    secret: () => room.word.puzzle.secret,
-    trap: () => room.word.puzzle.traps[0],
-    /** Bir kelimeyi kurulumdan sinyal aşamasına getirir. */
-    toSignal() {
-      clock.advance(config.setupSeconds * 1000);
+    roleIndex: (role) => room.round.board.findIndex((c) => c.role === role && !c.revealed),
+    start() {
+      room.handle(room.hostId, { type: 'start' });
     },
-    signal(word) {
-      room.handle(h.captain().id, { type: 'send_signal', word });
+    /** Kaptan elinin ilk kartını oynar. */
+    signal() {
+      const cap = h.captain();
+      room.handle(cap.id, { type: 'play_signal', word: room.round.hand[0] });
     },
-    /** Tüm tahmincilerle (rate limit'e takılmadan) tahmin gönderir. */
-    guess(word) {
-      const gs = h.guessers();
-      room.handle(gs[0].id, { type: 'propose_guess', word });
-      const prop = room.word?.proposals.find((p) => p.word === word);
-      if (prop) for (const g of gs.slice(1)) room.handle(g.id, { type: 'approve', proposalId: prop.id });
-      clock.advance(config.proposalRateLimitMs);
+    /** Bütün tahminciler aynı yere jeton koyar ve kilit süresi dolar. */
+    pick(target) {
+      for (const g of h.guessers()) room.handle(g.id, { type: 'token', target });
+      clock.advance(config.lockSeconds * 1000);
+    },
+    pickRole(role) {
+      h.pick(h.roleIndex(role));
+    },
+    pass() {
+      h.pick(PASS);
+    },
+    lastPrivate(playerId, type) {
+      for (let i = sent.length - 1; i >= 0; i--) if (sent[i].to === playerId && sent[i].msg.type === type) return sent[i].msg;
+      return null;
     },
     errors: (playerId) => sent.filter((m) => m.to === playerId && m.msg.type === 'error').map((m) => m.msg.code),
     lastError(playerId) {
       const e = h.errors(playerId);
       return e[e.length - 1];
     },
+    state: () => room.publicState(),
   };
   return h;
 }

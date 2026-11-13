@@ -4,19 +4,18 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>SİNYAL</title>
-    <meta name="description" content="Takımca, sesli iletişimle oynanan gerçek zamanlı Türkçe kelime oyunu." />
-    <meta name="color-scheme" content="dark light" />
-    <meta name="theme-color" content="#121722" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#e9e3d6" media="(prefers-color-scheme: light)" />
+    <meta name="description" content="SİNYAL: konuşamayan kaptanın tek kartlık sinyalleriyle oynanan takım çağrışım oyunu." />
+    <meta name="theme-color" content="#0e1116" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#eceef2" media="(prefers-color-scheme: light)" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="preload" href="/fonts/oswald-latin-ext-700-normal.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/oswald-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app"><noscript>SİNYAL için JavaScript gerekli.</noscript></div>
     <div id="fx" aria-hidden="true"></div>
-    <div id="toasts" aria-live="polite"></div>
-    <div id="conn" role="status" hidden>Bağlantı koptu, yeniden bağlanılıyor…</div>
+    <div id="toasts" role="status" aria-live="polite"></div>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

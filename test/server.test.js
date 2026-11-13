@@ -113,8 +113,25 @@ test('WebSocket: oda kur, katıl, yeniden bağlan', async () => {
 
   // Bozuk mesajlar bağlantıyı düşürmez.
   b2.ws.send('{bozuk json');
-  b2.send({ type: 'propose_guess', word: 12345 });
-  assert.equal((await b2.wait((m) => m.type === 'error')).code, 'NOT_ALLOWED_IN_PHASE');
+  b2.send({ type: 'play_signal', word: 12345 });
+  assert.equal((await b2.wait((m) => m.type === 'error')).code, 'BAD_PHASE');
+
+  // Oyun başlar: rolleri ve eli yalnızca kaptan alır, tahminci jetonla karar verir.
+  a.send({ type: 'start' });
+  const cap = await a.wait((m) => m.type === 'captain');
+  assert.equal(cap.roles.filter((r) => r === 'target').length, 1);
+  assert.equal(cap.hand.length, 6);
+  const sig = await b2.wait((m) => m.type === 'state' && m.phase === 'SIGNAL');
+  assert.equal(sig.round.captainId, welcome.playerId);
+  assert.ok(sig.round.board.every((c) => c.role === null));
+  a.send({ type: 'play_signal', word: cap.hand[0] });
+  await b2.wait((m) => m.type === 'state' && m.phase === 'GUESS');
+  b2.send({ type: 'token', target: cap.roles.indexOf('target') });
+  const locked = await a.wait((m) => m.type === 'state' && m.round?.lock);
+  assert.equal(locked.round.lock.target, cap.roles.indexOf('target'));
+  const hit = await a.wait((m) => m.type === 'state' && m.phase === 'REVEAL', 6000);
+  assert.equal(hit.run.score, 3);
+  assert.equal(hit.round.result.kind, 'hit');
   a.ws.close();
   b2.ws.close();
 });

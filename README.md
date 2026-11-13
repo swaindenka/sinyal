@@ -1,60 +1,57 @@
 # SİNYAL
 
-Takımca, sesli iletişimle (Discord vb.) oynanan, gerçek zamanlı bir Türkçe **kelime kartı** oyunu.
-Kaptan gizli kelimeyi bilir ama konuşamaz; sadece **sinyal kelimeleri** gönderir. Her sinyal
-hem **anlamıyla** hem de **Wordle renkleriyle** bilgi taşır. Tahminciler tuzaklara düşmeden
-gizli kelimeyi bulmaya çalışır.
+Konuşamayan kaptan, tek kartlık sinyal, bütün takım tek karar.
 
-Kuralların tamamı: [`docs/SINYAL_SPEC.md`](docs/SINYAL_SPEC.md)
+SİNYAL, 2–8 kişilik bir ekibin tarayıcıda, sesli sohbet (Discord vb.) eşliğinde birlikte oynadığı
+gerçek zamanlı bir **çağrışım kart oyunu**. Hesap ve kurulum gerektirmez; telefon ve bilgisayarda çalışır.
 
-## Kart konsepti
+## Nasıl oynanır
 
-- **Sinyal eli (kart modu, varsayılan):** kaptan yazmaz; her kelimede eline 8 sinyal kartı
-  dağıtılır ve sinyal aşamasında birini oynar, yerine desteden yenisi gelir. Kartlar yasak harf
-  içermeyen bilinen kelimelerdir; bir kısmı gizli kelimeyle çok harf paylaşır (harfçe güçlü),
-  kalanı rastgeledir. Kaptan kartların renk çizgilerini önceden görür. Kelime başına 1 kez **eli
-  yenileme** ve 1 **boş kart** (istediği kelimeyi yazma) hakkı vardır. Oda sahibi lobide
-  "Serbest yazma" moduna geçebilir.
-- **Güç kartları:** seri (üst üste 3 çözüm), yıldırım (20 sn içinde çözüm) ve altın kelime takıma
-  güç kartı kazandırır; oyun 1 kartla başlar, elde en fazla 5 kart durur.
+1. Masada **8 kelime kartı** var. Her turda sıradaki oyuncu **kaptan** olur ve hangi kartın **hedef**,
+   hangilerinin **parazit** olduğunu yalnızca o görür. Kaptan konuşamaz.
+2. Kaptan elindeki **6 kelime kartından** birini **sinyal** olarak oynar (ör. hedef BULUT için PAMUK).
+   Turda bir kez elini tamamen değiştirebilir.
+3. Takım konuşur ve **jetonlarını** kartlara koyar. Bütün tahmincilerin jetonu aynı kartta birleşince
+   3 saniyelik geri sayımla kart açılır. **Pas** alanında birleşilirse kart açılmadan yeni sinyal istenir.
+4. Hedef 1. sinyalden sonra bulunursa **3**, 2.den sonra **2**, 3.den sonra **1** puan. Boş kart çıkarsa
+   kaptan yeni sinyal oynar. **Parazit** ya da 3 sinyalde bulamamak **1 can** götürür.
+5. Takım 3 canla başlar, her 5 isabette 1 can geri gelir. Canlar bitince oyun biter ve skor takım
+   adına rekor olarak kaydedilir.
 
-| Kart | Etki | Kim oynar |
-|---|---|---|
-| Fener | Gizli kelimenin bir harfini açar (tuzak harfi hariç) | Tahminci |
-| Kalkan | Sıradaki tuzak tahmini can götürmez | Tahminci |
-| Saat | Aşamaya +30 sn | Herkes |
-| Ek kart | Bu kelimeye +1 satır | Herkes |
-| Anahtar | Kaptanın sıradaki sinyali yasak harf içerebilir | Kaptan |
-| Sakinleş | O anki kaos kartını iptal eder | Herkes |
+Turlar ilerledikçe parazitler artar ve hedefle **aynı kategoriden** gelmeye başlar (hedef KEDİ,
+parazit KÖPEK). Kaptanın elinde her zaman hedefin kategorisinden bir kart bulunur: ilk turlarda
+güvenli bir ipucudur, sonra tuzağa dönüşür.
+
+| Seviye | Tur | Parazit | Hedefe benzeyen parazit | Süre (sinyal / karar) |
+|---|---|---|---|---|
+| Isınma | 1–3 | 1 | 0 | 45 / 60 sn |
+| Kolay | 4–6 | 1 | 1 | 45 / 60 sn |
+| Orta | 7–9 | 2 | 1 | 45 / 60 sn |
+| Zor | 10–12 | 2 | 2 | 45 / 50 sn |
+| Usta | 13+ | 3 | 2 | 35 / 45 sn |
+
+Tasarımın gerekçeleri ve ayrıntılı kurallar: [`docs/TASARIM.md`](docs/TASARIM.md). İlk sürümün
+(harf renkli kelime oyunu) dokümanı tarih olarak [`docs/SINYAL_SPEC.md`](docs/SINYAL_SPEC.md)'de duruyor.
 
 ## Hızlı başlangıç
 
 ```bash
 npm install
-npm start            # http://localhost:3000
-npm run dev          # dosya değişince sunucuyu yeniden başlatır
-npm test             # birim + oyun motoru testleri
+npm start          # http://localhost:3000
+npm test           # birim + entegrasyon testleri
+npm run dev        # dosya değişince yeniden başlar
 ```
 
-Odayı kuran kişi davet linkini paylaşır (`/?oda=KOD`); diğerleri adını yazıp katılır.
-Oyun **2–8 kişiyle** oynanır. İki kişide biri kaptan, diğeri tahminci olur; tek tahmincinin
-tahmini, pası ve kumbara isteği onay beklemeden uygulanır (köstebek kartı en az 3 tahminci ister,
-2–3 kişide çıkmaz). Aynı tarayıcıda farklı sekmeler farklı oyuncu sayılır, böylece iki sekmeyle
-tek başına da deneyebilirsin.
-
-**Oda sahibi** takım adını belirler, kaptan sırasını düzenler ya da karıştırır, oyunu duraklatır,
-hesaplaşmayı erken bitirir ve gerekirse bir oyuncuyu odadan çıkarır (ör. ekran başında olmayan biri
-onay eşiğini tıkıyorsa). Oda sahibi 10 sn'den uzun koparsa yetki sıradaki bağlı oyuncuya geçer.
-
-Sayfayı yenileyen ya da bağlantısı kopan oyuncu 60 sn içinde döndüğünde yerini korur; kaptan
-koparsa oyun 30 sn bekler. Telefonda sekmeye geri dönüldüğünde bağlantı hemen yenilenir.
+Bir sekmede oda kur, başka bir tarayıcıda ya da gizli pencerede davet linkini açıp katıl.
+(Aynı tarayıcının iki sekmesi de olur; oturum sekmeye özeldir.)
 
 ## Render'da yayınlama
 
 **Blueprint ile (önerilen):** Render Dashboard → **New → Blueprint** → bu repoyu seç.
 `render.yaml` her şeyi ayarlar (ücretsiz Web Service, `npm ci` / `npm start`, `/health` kontrolü).
 
-**Elle:** **New → Web Service** → repo → Runtime: Node, Build: `npm ci`, Start: `npm start`.
+**Elle:** New → Web Service → repo; Runtime **Node**, Build `npm ci`, Start `npm start`,
+Health Check Path `/health`.
 
 WebSocket bağlantıları Render'da ek ayar gerektirmez; sunucu `PORT` değişkenini kendisi okur.
 
@@ -63,132 +60,63 @@ WebSocket bağlantıları Render'da ek ayar gerektirmez; sunucu `PORT` değişke
 | Değişken | Açıklama |
 |---|---|
 | `PORT` | Dinlenecek port (Render otomatik verir) |
-| `DATABASE_URL` | İsteğe bağlı PostgreSQL adresi. Verilirse takım rekorları ve kullanılmış bulmacalar burada tutulur |
-| `DATA_DIR` | `DATABASE_URL` yoksa kayıtların yazılacağı klasör (varsayılan `./storage`) |
-| `SINYAL_DEV` | `1` ise geliştirme modu: config'de `devMinPlayers` varsa o kadar oyuncuyla başlanabilir |
-| `SINYAL_CONFIG` | Başka bir config dosyası yolu |
+| `DATABASE_URL` | İsteğe bağlı PostgreSQL adresi. Verilirse takım rekorları burada tutulur (tablo `sinyal_teams_v2`) |
+| `DATA_DIR` | `DATABASE_URL` yoksa kayıtların yazılacağı klasör (varsayılan `./storage`, dosya `teams-v2.json`) |
+| `SINYAL_CONFIG` | Başka bir oyun ayar dosyası kullanmak için yol |
 
-> **Ücretsiz plan uykusu:** Render ücretsiz servisi 15 dk istek almazsa uyur ve ilk açılış ~1 dk
-> sürebilir. Odada oyuncu varken istemci birkaç dakikada bir `/health` isteği atar, böylece oyun
-> ortasında uykuya geçmez.
->
-> **Not:** Render'ın ücretsiz planında disk kalıcı değildir; servis uyuyup uyandığında ya da yeniden
-> deploy edildiğinde `storage/` sıfırlanır. Takım rekorlarının kalıcı olmasını istiyorsan
-> `DATABASE_URL` olarak bir PostgreSQL adresi ver (Render Postgres, Neon, Supabase…). Tablo
-> (`sinyal_teams`) ilk açılışta otomatik oluşturulur. Oyunun kendisi veritabanı olmadan da çalışır.
+> **Ücretsiz plan uykusu:** Render'ın ücretsiz servisi 15 dk istek almazsa uyur; ilk açılış ~1 dk
+> sürebilir. Odada oyuncu varken istemci birkaç dakikada bir `/health` isteği atar, oyun sırasında
+> servis uyumaz. Sunucu yeniden başlarsa açık odalar kapanır ve oyuncular giriş ekranına döner.
+
+> **Kalıcı rekorlar:** Ücretsiz planda disk kalıcı değildir. Rekorların silinmemesi için
+> `DATABASE_URL` olarak bir PostgreSQL adresi ver (Render Postgres, Neon, Supabase…). Tablo kendiliğinden
+> oluşturulur; veritabanına ulaşılamazsa oyun yine açılır ve kayıtlar dosyaya yazılır.
 
 ## Ayarlar
 
-Tüm sayısal değerler (süreler, can, satır sayıları, eşikler, zorluk seviyeleri, kaos kartları)
-[`config/game.json`](config/game.json) dosyasındadır. Spec'teki değerlere ek olarak:
+Bütün sayılar [`config/game.json`](config/game.json)'da:
 
-- `hostGraceSeconds`: oda sahibi koptuğunda yetkinin devredilmesi için beklenecek süre
-- `emptyRoomSeconds`: kimsenin bağlı olmadığı odanın silinme süresi
-- `requireApprovedPuzzles`: `true` ise sadece elle onaylanmış bulmacalar kullanılır
-- `chaos.cards`: çekilebilecek kaos kartları
-- `puzzleLengths`: bulmaca üretilecek kelime uzunlukları (varsayılan 5, 6, 7)
-- `cards`: kart modu — `defaultMode` (`cards` / `free`), `handSize`, `helpfulCards` (harfçe güçlü
-  kart sayısı), `redrawsPerWord`, `blankCardsPerWord`, `poolRank` (kartların seçildiği yaygın kelime
-  sınırı), `powerHandMax`, `startPowerCards`, hangi bonusların güç kartı verdiği
-  (`powerOnStreak`, `powerOnLightning`, `powerOnGolden`), `timeBonusSeconds` ve güç kartı
-  ağırlıkları (`powers`; 0 o kartı kapatır).
-- `excitement`: heyecan özellikleri — seri bonusu (`streakEvery`, `streakBankBonus`), yıldırım
-  (`lightningSeconds`, `lightningBankBonus`), altın kelime (`goldenStartWord`, `goldenChance`,
-  `goldenRowPenalty`) ve tepki emojileri (`reactions`, `reactionRateLimitMs`). Bonusları kapatmak
-  için ilgili değeri 0 yap.
-- `showTrapPosition`: tahmincilere tuzağın hangi harfte ayrıldığını göster (harfleri değil, yalnızca konumu)
-- `tiers[]`: seviyeler — `name`, hangi kelimeden başladığı (`fromWord`), kelime uzunlukları, tuzak
-  sayısı, satır sayısı, `consonantOnly` ve `difficulty` (0–100 zorluk bandı)
-
-## Zorluk ve seviyeler
-
-Her bulmacaya `scripts/build_data.py` 0–100 arası bir zorluk puanı verir:
-
-| Bileşen | Ağırlık | Neden zorlaştırır |
+| Anahtar | Varsayılan | Anlamı |
 |---|---|---|
-| Nadirlik | %42 | Gizli kelime az kullanılıyorsa tahmin etmek zor |
-| Cazip tuzak | %18 | Tuzak gizli kelimeden daha yaygınsa tahminciler oraya kayar (YARAN / YARIN) |
-| Sinyal kıtlığı | %16 | Yasak harfler yüzünden kaptanın kullanabileceği kelime oranı düşük |
-| Şaşırtmaca | %14 | Aynı kalıba uyan, tuzak olmayan başka kelimeler boşa satır harcatır |
-| Sesli fark | %10 | Yasak harflerden biri sesliyse sinyal bulmak çok zorlaşır |
+| `minPlayers` / `maxPlayers` | 2 / 8 | Oyuncu sınırları |
+| `lives`, `lifeEveryHits` | 3, 5 | Başlangıç canı; kaç isabette bir can geri gelir (0: hiç) |
+| `boardSize` | 8 | Masadaki kart sayısı |
+| `maxSignals`, `points` | 3, [3, 2, 1] | Turdaki sinyal hakkı ve kaçıncı sinyalde kaç puan |
+| `handSize`, `handNitelik`, `handKin` | 6, 2, 1 | El büyüklüğü; kaçı sıfat, kaçı hedefin kategorisinden |
+| `redrawsPerRound` | 1 | Turda kaç kez el değiştirilebilir |
+| `signalSeconds`, `guessSeconds` | 45, 60 | Kaptanın sinyal, takımın karar süresi |
+| `lockSeconds` | 3 | Jetonlar birleşince kartın açılmasına kalan süre |
+| `revealSeconds` | 6 | Tur sonucunun ekranda kalma süresi |
+| `playerReconnectSeconds`, `hostGraceSeconds` | 60, 10 | Kopan oyuncunun yerini koruma, oda sahipliğinin devri |
+| `levels` | | Seviyeler: başladığı tur, parazit sayısı, hedefe benzeyen parazit (`near`) ve boş kart (`decoys`), isteğe bağlı süreler |
 
-Seviyeler (`config/game.json`):
+## Kelime destesi
 
-| Seviye | Kelime | Harf | Tuzak | Satır | Zorluk |
-|---|---|---|---|---|---|
-| 1 Isınma | 1–3 | 5 | 1 (ünsüz farkı) | 6 | 0–38 |
-| 2 Kolay | 4–6 | 5–6 | 1 (ünsüz farkı) | 6 | 20–50 |
-| 3 Orta | 7–9 | 6–7 | 1 | 5 | 30–60 |
-| 4 Zor | 10–12 | 5–6 | 2 | 5 | 35–65 |
-| 5 Çok zor | 13–15 | 6–7 | 2 | 5 | 40–100 |
-| 6 Usta | 16+ | 5–7 | 2–3 | 4 | 50–100 |
+[`data/cards.json`](data/cards.json) elle derlenmiştir:
 
-Bir seviyede kullanılmamış bulmaca kalmazsa bir alt seviyeden seçilir. `build_data.py` her seviyede
-kaç bulmaca ve gizli kelime olduğunu yazdırır; bantları değiştirdikten sonra çalıştırıp kontrol et.
+- `categories`: masadaki kartlar, 13 kategoride 521 somut ve herkesin bildiği kelime
+  (hayvan, yiyecek, ev, doğa, taşıt, meslek, giysi, yer, spor, sanat, vücut, teknoloji, masal).
+- `nitelik`: 106 sıfat (SICAK, SİVRİ, TATLI…). Her elde 2 tane bulunur.
+- `kavram`: 140 soyut ya da çok anlamlı kelime (RÜYA, KORKU, GECE…).
 
-## Kelime verisi (Faz 1)
+Kelime eklemek için listeye yazman yeterli: en fazla 10 harf, Türkçe büyük harf (İ/I'ye dikkat),
+her kelime yalnızca bir listede. `npm test` kuralları denetler. Birbirini içeren ya da ilk 4 harfi
+aynı kelimeler (KAR/KARPUZ, KRAL/KRALİÇE) aynı tahtaya ya da ele gelmez.
 
-`data/` klasöründeki dosyalar `scripts/build_data.py` ile üretilir ve repoya dahildir;
-sunucunun çalışması için Python gerekmez.
+## Yapı
 
-| Dosya | İçerik |
-|---|---|
-| `words.tsv` | Sözlük (≈45 bin yalın kelime) ve sıklık sırası |
-| `puzzles.json` | Bulmacalar: gizli kelime, tuzaklar, yasak harfler, seviye, `approved` |
-| `puzzles_review.csv` | Elle onay için CSV çıktısı |
-| `categories.json` | Kategori kilidi kartı için kelimeler (`categories_source.json`'dan süzülür) |
-| `secret_exclude.txt` | Gizli kelime olmaması gereken bağlaç, zamirli biçim, özel isim gibi duran kelimeler |
-| `extra_words.txt` | TDK listesinde olmayan ama yaygın kelimeler (internet, emoji…) |
-| `profanity_extra.txt` / `profanity_allow.txt` | Küfür filtresine ekler / istisnalar |
-
-Kaynaklar: TDK kelime listesi ([mertemin/turkish-word-list](https://github.com/mertemin/turkish-word-list)),
-sıklık için [wordfreq](https://github.com/rspeer/wordfreq), küfür listesi
-([ooguz/turkce-kufur-karaliste](https://github.com/ooguz/turkce-kufur-karaliste)).
-
-```bash
-pip install wordfreq
-python3 scripts/build_data.py                          # veriyi yeniden üret
-python3 scripts/build_data.py --approvals onaylar.csv  # CSV'deki approved sütununu uygula
+```
+server/
+  index.js    HTTP (statik dosyalar, /health) + WebSocket, oda kayıtları
+  room.js     oyun motoru: LOBBY → SIGNAL → GUESS → REVEAL → … → END
+  deck.js     tahta ve el dağıtımı, çakışma kuralı
+  store.js    takım rekorları (PostgreSQL ya da dosya)
+public/
+  index.html, style.css, app.js, icons.js, fonts/ (Oswald, OFL)
+data/cards.json   kelime destesi
+config/game.json  oyun ayarları
+test/             node:test birim ve entegrasyon testleri
 ```
 
-Bulmaca onayı: `puzzles_review.csv`'yi bir tablo programında aç, beğendiğin satırlarda `approved`
-sütununu `1` yap, kaydedip `--approvals` ile uygula, sonra `config/game.json`'da
-`requireApprovedPuzzles: true` yap. Yeniden üretimde mevcut onaylar korunur.
-
-## Mimari
-
-- `server/room.js` — oyun motoru ve durum makinesi
-  (`LOBBY → WORD_SETUP → SIGNAL ⇄ DISCUSSION → [MOLE_VOTE] → REVEAL → … → RUN_END`).
-  Sunucu otoriterdir: tüm doğrulama ve renk hesabı burada yapılır.
-- `server/score.js` — renk algoritması (tekrarlayan harfler dahil)
-- `server/data.js` — sözlük, kategoriler, bulmaca seçimi (seviye ve geriye düşme)
-- `server/store.js` — takım rekorları (dosya ya da PostgreSQL)
-- `server/index.js` — HTTP (statik dosyalar, `/health`) + WebSocket (`/ws`)
-- `public/` — derleme gerektirmeyen istemci (HTML/CSS/JS modülleri), Türkçe Q ekran klavyesi.
-  Görsel dil bir kart masasıdır: oynanan her satır krem renkli bir kelime kartıdır (kaptanın
-  sinyalleri koyu "kaptan kartı", tuzak siyah ve damgalı), kalan satırlar ters çevrilmiş deste,
-  kaptanın gizli bilgisi bir "dosya". Harf ipucu harflerin altındaki renk çizgileridir: mavi tam
-  yer, turuncu kelimede var, gri yok. Tasarım `style.css`'teki tokenlarla açık/koyu temayı cihaz
-  ayarına göre seçer; ikonlar `icons.js`'teki satır içi SVG'ler, kart yazı tipi sunucudan
-  sunulan Oswald'dır (`public/fonts`, SIL Open Font License). Klavye yalnızca yazarken açılır.
-
-Gizli bilgiler (gizli kelime, tuzaklar, yasak harfler, köstebek kimliği) hiçbir zaman herkese
-yayınlanan duruma yazılmaz; sadece ilgili oyuncuya özel mesajla gider ve hesaplaşmada açılır.
-Sayaçlar sunucuda tutulur; istemciye `endsAt` gönderilir, istemci sadece geri sayımı çizer.
-
-### Spec'ten bilinçli farklar
-
-- **En az 2 oyuncu** (spec'te 3): iki kişide tek tahminci olduğu için öneriler hemen gönderilir.
-- **Hesaplaşma kısaltıldı** (spec'te 30 sn, kaptan sinyallerini açıklar): yerine 6 sn'lik sonuç anı
-  gelir ve oyun kendiliğinden devam eder; oda sahibi "Devam" ile daha erken geçebilir.
-- **Kart modu ve güç kartları** (spec'te yok): kaptan varsayılan olarak elinden sinyal kartı oynar;
-  seri/yıldırım/altın ödülleri kumbara satırı yerine güç kartıdır.
-- **Heyecan özellikleri** (spec'te yok): seri ve yıldırım bonusları, altın kelime, son can modu,
-  son 10 saniye uyarısı, büyük duyurular ve tepki emojileri (kaptan kelime sürerken tepki veremez).
-
-- **Next.js + Colyseus yerine** sade Node.js + `ws` ve derlemesiz bir istemci kullanıldı:
-  tek bir Render Web Service olarak `npm start` ile çalışır, build adımı yoktur.
-- **PostgreSQL isteğe bağlı:** sadece takım rekorları ve kullanılmış bulmacalar saklanır;
-  bulmacalar ve sözlük repodaki dosyalardan okunur.
-- **Yaygın kelime sınırı 10.000:** wordfreq'in Türkçe listesinde ≈11 bin TDK kelimesinin sıklığı
-  var; 20.000 sınırı nadir kelimeleri de içine alıyordu.
+Sunucu otoriterdir: kartların rolleri ve kaptanın eli yalnızca kaptana özel mesajla gider, herkese
+yayınlanan durumda yer almaz.
