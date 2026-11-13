@@ -55,6 +55,24 @@
   --accent: #2563eb;
   --accent-ink: #ffffff;
   --accent-soft: rgba(37, 99, 235, 0.12);
+  --hit-hi: #2fc46a;
+  --bad-hi: #ef5252;
+
+  --table: #cfd6e1;
+  --table-hi: #e6ebf2;
+  --table-ring: rgba(30, 55, 95, 0.07);
+  --table-edge: rgba(20, 30, 50, 0.08);
+  --card-top: #fffefa;
+  --card-bot: #f3eddf;
+  --card-shadow: rgba(23, 30, 45, 0.18);
+  --hatch: #f9dede;
+  --back-a: #b9c2cf;
+  --back-b: #aeb8c6;
+  --back-ink: #3b4352;
+  --back-line: rgba(255, 255, 255, 0.5);
+  --slot-line: rgba(17, 24, 39, 0.2);
+  --signal-line: rgba(214, 140, 0, 0.55);
+  --dim: saturate(0.5) opacity(0.6);
 
   --p0: #2563eb;
   --p1: #ea580c;
@@ -93,6 +111,22 @@
     --blank: #5d6676;
     --accent: #4f8dff;
     --accent-soft: rgba(79, 141, 255, 0.16);
+    --hit-hi: #4ade80;
+    --bad-hi: #f87171;
+    --table: #111923;
+    --table-hi: #1b2737;
+    --table-ring: rgba(120, 170, 255, 0.05);
+    --table-edge: rgba(255, 255, 255, 0.06);
+    --card-top: #fbf8f0;
+    --card-bot: #ece5d4;
+    --card-shadow: rgba(0, 0, 0, 0.5);
+    --back-a: #2b3442;
+    --back-b: #252d3a;
+    --back-ink: #9aa4b4;
+    --back-line: rgba(255, 255, 255, 0.12);
+    --slot-line: rgba(255, 255, 255, 0.16);
+    --signal-line: rgba(255, 176, 32, 0.5);
+    --dim: brightness(0.6) saturate(0.6);
     --p0: #4f8dff;
     --p1: #fb923c;
     --p2: #c084fc;
@@ -127,6 +161,22 @@
   --blank: #5d6676;
   --accent: #4f8dff;
   --accent-soft: rgba(79, 141, 255, 0.16);
+  --hit-hi: #4ade80;
+  --bad-hi: #f87171;
+  --table: #111923;
+  --table-hi: #1b2737;
+  --table-ring: rgba(120, 170, 255, 0.05);
+  --table-edge: rgba(255, 255, 255, 0.06);
+  --card-top: #fbf8f0;
+  --card-bot: #ece5d4;
+  --card-shadow: rgba(0, 0, 0, 0.5);
+  --back-a: #2b3442;
+  --back-b: #252d3a;
+  --back-ink: #9aa4b4;
+  --back-line: rgba(255, 255, 255, 0.12);
+  --slot-line: rgba(255, 255, 255, 0.16);
+  --signal-line: rgba(255, 176, 32, 0.5);
+  --dim: brightness(0.6) saturate(0.6);
   --p0: #4f8dff;
   --p1: #fb923c;
   --p2: #c084fc;
@@ -512,6 +562,97 @@ button:disabled {
   background: var(--pc);
 }
 
+/* giriş: kart yelpazesi */
+.fan {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  height: 168px;
+  margin-top: 4px;
+}
+
+.fc {
+  position: absolute;
+  top: 12px;
+  width: 112px;
+  height: 138px;
+  border-radius: 14px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  padding-top: 12px;
+  font-family: var(--font-card);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.03em;
+  background: linear-gradient(180deg, var(--card-top), var(--card-bot));
+  color: var(--tile-ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 12px 26px var(--card-shadow);
+}
+
+.fc small {
+  position: absolute;
+  top: 11px;
+  left: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.fc-t {
+  left: 0;
+  transform: rotate(-10deg);
+  box-shadow: inset 0 0 0 3px var(--hit), 0 12px 26px var(--card-shadow);
+}
+
+.fc-t small {
+  color: var(--hit);
+}
+
+.fc-p {
+  left: calc(50% - 56px);
+  transform: translateY(-8px) rotate(-1deg);
+  background: repeating-linear-gradient(135deg, var(--card-top) 0 9px, var(--hatch) 9px 18px);
+  box-shadow: inset 0 0 0 3px var(--bad), 0 12px 26px var(--card-shadow);
+}
+
+.fc-p small {
+  color: var(--bad);
+}
+
+.fc-s {
+  right: 0;
+  transform: rotate(9deg);
+  background: linear-gradient(160deg, var(--signal-2) -30%, var(--signal) 65%);
+  color: var(--signal-ink);
+}
+
+.fan .chip {
+  position: absolute;
+  bottom: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--pc) 0 54%, transparent 56%), repeating-conic-gradient(var(--pc) 0 22.5deg, rgba(255, 255, 255, 0.92) 22.5deg 45deg);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.35);
+  z-index: 2;
+}
+
+.fan .chip:nth-child(4) {
+  left: 18px;
+}
+.fan .chip:nth-child(5) {
+  left: 42px;
+  bottom: 10px;
+}
+.fan .chip:nth-child(6) {
+  left: 66px;
+}
+
 /* ───────────── lobi ───────────── */
 
 .topline {
@@ -788,6 +929,36 @@ button:disabled {
   white-space: nowrap;
 }
 
+.lvl {
+  display: inline-block;
+  vertical-align: 3px;
+  margin-left: 4px;
+  font-family: var(--font-ui);
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #fff;
+}
+
+.lvl.l0 {
+  background: #16a34a;
+}
+.lvl.l1 {
+  background: #65a30d;
+}
+.lvl.l2 {
+  background: #ca8a04;
+}
+.lvl.l3 {
+  background: #ea580c;
+}
+.lvl.l4 {
+  background: #dc2626;
+}
+
 .lives {
   display: flex;
   gap: 3px;
@@ -824,21 +995,45 @@ button:disabled {
 
 .status {
   position: relative;
-  overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px 16px;
+  padding: 12px 12px 12px 14px;
   border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
+  transition: background 0.25s, border-color 0.25s;
+}
+
+.phase-ic {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.status.captain-turn .phase-ic {
+  background: var(--signal);
+  color: var(--signal-ink);
+}
+
+.status.me:not(.captain-turn) .phase-ic {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.status .say {
+  min-width: 0;
 }
 
 .status .say b {
   display: block;
-  font-size: 18px;
+  font-size: 17px;
   line-height: 1.25;
 }
 
@@ -846,51 +1041,70 @@ button:disabled {
   display: block;
   margin-top: 2px;
   font-size: 14px;
+  line-height: 1.4;
   color: var(--text-2);
 }
 
-.status .secs {
+.timer {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+}
+
+.timer svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.timer circle {
+  fill: none;
+  stroke-width: 4;
+}
+
+.timer .track {
+  stroke: var(--surface-2);
+}
+
+.timer .arc {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-dasharray: 119.38;
+  transition: stroke-dashoffset 0.25s linear, stroke 0.2s;
+}
+
+.timer .secs {
   font-family: var(--font-card);
   font-weight: 700;
-  font-size: 30px;
+  font-size: 19px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  min-width: 2ch;
-  text-align: right;
 }
 
-.status .wait-slot {
-  grid-column: 1 / -1;
+.status.captain-turn .timer .arc {
+  stroke: var(--signal);
 }
 
-.status .wait-slot:empty {
-  display: none;
-}
-
-.status .bar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 4px;
-  background: var(--surface-2);
-}
-
-.status .bar i {
-  display: block;
-  height: 100%;
-  width: 100%;
-  background: var(--accent);
-  transform-origin: left;
-  transition: transform 0.25s linear;
+.status.urgent .timer .arc {
+  stroke: var(--bad);
 }
 
 .status.urgent .secs {
   color: var(--bad);
 }
 
-.status.urgent .bar i {
-  background: var(--bad);
+.status.urgent .timer {
+  animation: beat 1s ease-in-out infinite;
+}
+
+@keyframes beat {
+  50% {
+    transform: scale(1.08);
+  }
 }
 
 .status.me {
@@ -903,37 +1117,46 @@ button:disabled {
   box-shadow: 0 0 0 1px var(--signal), var(--shadow);
 }
 
-.status.res-hit {
-  background: var(--hit);
-  color: var(--hit-ink);
+.status.res-hit,
+.status.res-parasite {
   border-color: transparent;
 }
 
+.status.res-hit {
+  background: linear-gradient(135deg, var(--hit-hi), var(--hit));
+  color: var(--hit-ink);
+}
+
 .status.res-parasite {
-  background: var(--bad);
+  background: linear-gradient(135deg, var(--bad-hi), var(--bad));
   color: var(--bad-ink);
-  border-color: transparent;
 }
 
 .status.res-hit .say span,
 .status.res-parasite .say span {
   color: inherit;
-  opacity: 0.9;
+  opacity: 0.92;
+}
+
+.status.res-hit .phase-ic,
+.status.res-parasite .phase-ic {
+  background: rgba(0, 0, 0, 0.16);
+  color: inherit;
+}
+
+.status.res-hit .timer .track,
+.status.res-parasite .timer .track {
+  stroke: rgba(0, 0, 0, 0.16);
+}
+
+.status.res-hit .timer .arc,
+.status.res-parasite .timer .arc {
+  stroke: currentColor;
 }
 
 .status.res-silence,
 .status.res-cancelled {
   background: var(--surface-2);
-}
-
-.status.res-hit .bar,
-.status.res-parasite .bar {
-  background: rgba(0, 0, 0, 0.15);
-}
-
-.status.res-hit .bar i,
-.status.res-parasite .bar i {
-  background: currentColor;
 }
 
 .status .big {
@@ -959,8 +1182,7 @@ button:disabled {
   background: rgba(0, 0, 0, 0.18);
 }
 
-.status.res-silence .rbadge,
-.status.res-cancelled .rbadge {
+.status.res-silence .rbadge {
   background: var(--bad-soft);
   color: var(--bad);
 }
@@ -968,6 +1190,36 @@ button:disabled {
 .status.res-cancelled .rbadge {
   background: var(--surface);
   color: var(--text-2);
+}
+
+.status .wait-slot {
+  grid-column: 1 / -1;
+}
+
+.status .wait-slot:empty {
+  display: none;
+}
+
+/* ───────────── masa: sinyaller + kartlar aynı yüzeyde ───────────── */
+
+.table {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 22px;
+  background:
+    repeating-radial-gradient(circle at 50% 115%, transparent 0 52px, var(--table-ring) 52px 53px),
+    radial-gradient(130% 90% at 50% 0%, var(--table-hi), var(--table) 72%);
+  box-shadow: inset 0 0 0 1px var(--table-edge), inset 0 2px 0 rgba(255, 255, 255, 0.04), 0 18px 40px rgba(0, 0, 0, 0.18);
+}
+
+@media (min-width: 640px) {
+  .table {
+    padding: 18px;
+    gap: 16px;
+    border-radius: 26px;
+  }
 }
 
 /* ───────────── sinyal şeridi ───────────── */
@@ -980,6 +1232,7 @@ button:disabled {
 
 .sig {
   position: relative;
+  overflow: hidden;
   min-height: 62px;
   border-radius: 12px;
   display: grid;
@@ -1004,11 +1257,11 @@ button:disabled {
   right: 8px;
   font-size: 11px;
   font-weight: 750;
-  opacity: 0.6;
+  opacity: 0.65;
 }
 
 .sig.empty {
-  border: 2px dashed var(--line-strong);
+  border: 2px dashed var(--slot-line);
   color: var(--muted);
 }
 
@@ -1025,17 +1278,39 @@ button:disabled {
 }
 
 .sig.filled {
-  background: var(--signal);
+  background: linear-gradient(160deg, var(--signal-2) -30%, var(--signal) 65%);
   color: var(--signal-ink);
-  box-shadow: 0 6px 16px rgba(255, 176, 32, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), 0 8px 18px rgba(255, 176, 32, 0.28);
+  transform: rotate(-1.5deg);
+  animation: dealIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.25);
+}
+
+.sig.filled:nth-child(2) {
+  transform: rotate(1.2deg);
+}
+
+.sig.filled:nth-child(3) {
+  transform: rotate(-0.6deg);
 }
 
 .sig.filled.old {
   background: var(--signal-2);
-  box-shadow: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+  animation: none;
+}
+
+.sig .wm,
+.hcard .wm,
+.fc .wm {
+  position: absolute;
+  right: -10px;
+  bottom: -12px;
+  opacity: 0.16;
+  pointer-events: none;
 }
 
 .sig .w {
+  position: relative;
   font-family: var(--font-card);
   font-weight: 700;
   font-size: 22px;
@@ -1050,6 +1325,7 @@ button:disabled {
 }
 
 .sig .auto {
+  position: relative;
   font-size: 10px;
   font-weight: 700;
   opacity: 0.7;
@@ -1057,11 +1333,18 @@ button:disabled {
 
 @keyframes nextPulse {
   50% {
-    background: rgba(255, 176, 32, 0.1);
+    background: rgba(255, 176, 32, 0.12);
   }
 }
 
-/* ───────────── tahta ───────────── */
+@keyframes dealIn {
+  from {
+    transform: translateY(-14px) rotate(-8deg) scale(0.9);
+    opacity: 0;
+  }
+}
+
+/* ───────────── kelime kartları ───────────── */
 
 .board {
   display: grid;
@@ -1072,33 +1355,51 @@ button:disabled {
 @media (min-width: 640px) {
   .board {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 10px;
+    gap: 12px;
   }
 }
 
 .tile {
   position: relative;
-  min-height: 66px;
-  border-radius: 14px;
+  min-height: 70px;
+  border-radius: 13px;
   border: none;
-  padding: 18px 8px 16px;
+  padding: 18px 8px 18px;
   display: grid;
   place-items: center;
-  background: var(--tile);
+  background: linear-gradient(180deg, var(--card-top), var(--card-bot));
   color: var(--tile-ink);
-  box-shadow: var(--tile-shadow);
-  transition: transform 0.12s, box-shadow 0.15s, background 0.2s;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 -2px 0 rgba(0, 0, 0, 0.06), 0 6px 14px var(--card-shadow);
+  transition: transform 0.15s, box-shadow 0.15s, filter 0.2s, opacity 0.2s;
   -webkit-user-select: none;
   user-select: none;
 }
 
+.tile::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 9px;
+  border: 1px solid rgba(23, 26, 32, 0.08);
+  pointer-events: none;
+}
+
 @media (min-width: 640px) {
   .tile {
-    min-height: 104px;
+    min-height: 112px;
+    border-radius: 15px;
   }
 }
 
+.tile .pip {
+  position: absolute;
+  top: 8px;
+  right: 9px;
+  color: rgba(23, 26, 32, 0.2);
+}
+
 .tile .word {
+  position: relative;
   font-family: var(--font-card);
   font-weight: 700;
   font-size: 22px;
@@ -1117,20 +1418,20 @@ button:disabled {
 
 @media (min-width: 640px) {
   .tile .word {
-    font-size: 26px;
+    font-size: 28px;
   }
   .tile .word.l8 {
-    font-size: 22px;
+    font-size: 23px;
   }
   .tile .word.l10 {
-    font-size: 19px;
+    font-size: 20px;
   }
 }
 
 .tile .tag {
   position: absolute;
-  top: 5px;
-  left: 7px;
+  top: 8px;
+  left: 10px;
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -1143,35 +1444,43 @@ button:disabled {
   position: absolute;
   left: 6px;
   right: 6px;
-  bottom: 5px;
+  bottom: -9px;
   display: flex;
-  gap: 3px;
+  gap: 2px;
   justify-content: center;
+  z-index: 1;
 }
 
 .tok {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background: var(--pc);
-  color: #fff;
   display: grid;
   place-items: center;
+  color: #fff;
   font-size: 10px;
   font-weight: 800;
-  box-shadow: 0 0 0 2px var(--tile);
   text-transform: uppercase;
-  animation: tokIn 0.18s ease-out;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+  background: radial-gradient(circle, var(--pc) 0 54%, transparent 56%), repeating-conic-gradient(var(--pc) 0 22.5deg, rgba(255, 255, 255, 0.92) 22.5deg 45deg);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+  animation: tokIn 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.4);
 }
 
 @keyframes tokIn {
   from {
-    transform: scale(0.3);
+    transform: translateY(-10px) scale(0.4);
+    opacity: 0;
   }
 }
 
 button.tile:not(:disabled):hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px) rotate(-0.4deg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 -2px 0 rgba(0, 0, 0, 0.06), 0 12px 22px var(--card-shadow);
+}
+
+button.tile:not(:disabled):active {
+  transform: translateY(0) scale(0.98);
 }
 
 button.tile:disabled {
@@ -1179,99 +1488,112 @@ button.tile:disabled {
 }
 
 .tile.mine {
-  box-shadow: var(--tile-shadow), 0 0 0 3px var(--pc, var(--accent));
+  outline: 3px solid var(--pc, var(--accent));
+  outline-offset: 2px;
 }
 
 /* kaptanın gördüğü roller */
-.tile.see-target {
-  box-shadow: var(--tile-shadow), inset 0 0 0 4px var(--hit);
+.tile.see-target::before,
+.tile.show-target::before {
+  inset: 3px;
+  border: 3px solid var(--hit);
+  border-radius: 11px;
 }
 
-.tile.see-target .tag {
-  color: var(--hit);
-}
-
-.tile.see-parasite {
-  background: repeating-linear-gradient(135deg, var(--tile) 0 10px, #fbe3e3 10px 20px);
-  box-shadow: var(--tile-shadow), inset 0 0 0 4px var(--bad);
-}
-
-.tile.see-parasite .tag {
-  color: var(--bad);
-}
-
-/* açılmış kartlar */
-.tile.open-blank {
-  background: var(--surface-2);
-  color: var(--muted);
-  box-shadow: inset 0 0 0 1px var(--line);
-}
-
-.tile.open-blank .word {
-  text-decoration: line-through;
-  text-decoration-thickness: 2px;
-  opacity: 0.7;
-}
-
-.tile.open-target {
-  background: var(--hit);
-  color: var(--hit-ink);
-}
-
-.tile.open-parasite {
-  background: var(--bad);
-  color: var(--bad-ink);
-}
-
-/* sonuçta açılmamış ama rolü gösterilen kartlar */
-.tile.show-target {
-  box-shadow: var(--tile-shadow), inset 0 0 0 4px var(--hit);
-}
-
-.tile.show-parasite {
-  box-shadow: var(--tile-shadow), inset 0 0 0 4px var(--bad);
-}
-
+.tile.see-target .tag,
 .tile.show-target .tag {
   color: var(--hit);
 }
 
+.tile.see-parasite {
+  background: repeating-linear-gradient(135deg, var(--card-top) 0 9px, var(--hatch) 9px 18px);
+}
+
+.tile.see-parasite::before,
+.tile.show-parasite::before {
+  inset: 3px;
+  border: 3px solid var(--bad);
+  border-radius: 11px;
+}
+
+.tile.see-parasite .tag,
 .tile.show-parasite .tag {
   color: var(--bad);
 }
 
+/* açılmış kartlar */
+.tile.open-target {
+  background: linear-gradient(180deg, var(--hit-hi), var(--hit));
+  color: var(--hit-ink);
+}
+
+.tile.open-parasite {
+  background: linear-gradient(180deg, var(--bad-hi), var(--bad));
+  color: var(--bad-ink);
+}
+
+.tile.open-target::before,
+.tile.open-parasite::before {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+/* boş çıkan kart ters döner: kart arkası */
+.tile.open-blank {
+  background: repeating-linear-gradient(45deg, var(--back-a) 0 7px, var(--back-b) 7px 14px);
+  color: var(--back-ink);
+  box-shadow: inset 0 0 0 1px var(--line), 0 3px 8px var(--card-shadow);
+}
+
+.tile.open-blank::before {
+  border: 1px dashed var(--back-line);
+}
+
+.tile.open-blank .word {
+  font-size: 15px;
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--back-a);
+}
+
 .tile.dim {
-  opacity: 0.55;
+  filter: var(--dim);
+  transform: scale(0.97);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 2px 6px var(--card-shadow);
 }
 
 .tile.flip {
-  animation: flip 0.5s ease-out;
+  animation: flip 0.55s ease-out;
 }
 
 @keyframes flip {
   0% {
-    transform: rotateX(0);
+    transform: perspective(700px) rotateY(0);
   }
-  45% {
-    transform: rotateX(90deg);
+  50% {
+    transform: perspective(700px) rotateY(90deg) scale(1.04);
   }
   100% {
-    transform: rotateX(0);
+    transform: perspective(700px) rotateY(0);
   }
 }
 
 /* kilit geri sayımı */
-.tile.locking,
-.pass.locking {
+.tile.locking {
   animation: lockPulse 0.6s ease-in-out infinite alternate;
+}
+
+.pass.locking {
+  animation: lockPulsePass 0.6s ease-in-out infinite alternate;
 }
 
 .lockn {
   position: absolute;
-  top: -8px;
-  right: -6px;
-  width: 30px;
-  height: 30px;
+  top: -9px;
+  right: -7px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -1279,14 +1601,25 @@ button.tile:disabled {
   color: var(--accent-ink);
   font-family: var(--font-card);
   font-weight: 700;
-  font-size: 17px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  font-size: 18px;
+  box-shadow: 0 0 0 3px var(--surface), 0 4px 12px rgba(0, 0, 0, 0.35);
   z-index: 2;
 }
 
 @keyframes lockPulse {
+  from {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+  }
   to {
-    box-shadow: var(--tile-shadow), 0 0 0 5px var(--accent);
+    outline: 3px solid var(--accent);
+    outline-offset: 6px;
+  }
+}
+
+@keyframes lockPulsePass {
+  to {
+    box-shadow: 0 0 0 4px var(--accent-soft);
   }
 }
 
@@ -1301,6 +1634,7 @@ button.tile:disabled {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  padding-top: 4px;
 }
 
 @media (min-width: 640px) {
@@ -1310,29 +1644,45 @@ button.tile:disabled {
 }
 
 .hcard {
-  min-height: 52px;
+  position: relative;
+  overflow: hidden;
+  min-height: 58px;
   border-radius: 12px;
-  border: 2px solid var(--signal);
-  background: var(--surface);
-  color: var(--text);
+  border: none;
+  background: linear-gradient(165deg, var(--signal-2) -25%, var(--signal) 70%);
+  color: var(--signal-ink);
   font-family: var(--font-card);
   font-weight: 700;
   font-size: 17px;
   letter-spacing: 0.03em;
-  padding: 6px 4px;
+  padding: 8px 4px;
   overflow-wrap: anywhere;
-  transition: transform 0.12s, background 0.15s;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), 0 4px 10px rgba(0, 0, 0, 0.22);
+  transition: transform 0.15s, box-shadow 0.15s, filter 0.15s, opacity 0.15s;
+}
+
+.hcard span {
+  position: relative;
+}
+
+.hand.has-sel .hcard:not(.sel) {
+  transform: scale(0.97);
 }
 
 .hcard.sel {
-  background: var(--signal);
-  color: var(--signal-ink);
-  transform: translateY(-4px);
-  box-shadow: 0 8px 18px rgba(255, 176, 32, 0.35);
+  transform: translateY(-6px) rotate(-2deg) scale(1.04);
+  box-shadow: 0 0 0 3px var(--text), 0 14px 26px rgba(255, 176, 32, 0.45);
 }
 
+/* takım karar verirken kaptanın eli: yalnızca çerçeve */
 .hcard:disabled {
-  opacity: 0.5;
+  background: transparent;
+  color: var(--signal);
+  box-shadow: inset 0 0 0 2px var(--signal-line);
+}
+
+.hcard:disabled .wm {
+  display: none;
 }
 
 .hand-actions {
@@ -1351,9 +1701,9 @@ button.tile:disabled {
 .pass {
   position: relative;
   width: 100%;
-  min-height: 54px;
+  min-height: 56px;
   border-radius: 14px;
-  border: 2px dashed var(--line-strong);
+  border: 2px dashed var(--slot-line);
   background: transparent;
   display: flex;
   align-items: center;
@@ -1372,7 +1722,7 @@ button.tile:disabled {
 
 .pass .toks {
   display: flex;
-  gap: 3px;
+  gap: 2px;
 }
 
 .backs {
@@ -1382,12 +1732,12 @@ button.tile:disabled {
 }
 
 .backs i {
-  width: 34px;
-  height: 46px;
+  width: 36px;
+  height: 50px;
   border-radius: 7px;
-  margin-left: -14px;
-  background: repeating-linear-gradient(45deg, var(--signal) 0 6px, var(--signal-2) 6px 12px);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  margin-left: -16px;
+  background: linear-gradient(165deg, var(--signal-2) -25%, var(--signal) 70%);
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.35), 0 3px 8px rgba(0, 0, 0, 0.25);
   border: 2px solid var(--surface);
 }
 
@@ -1395,12 +1745,23 @@ button.tile:disabled {
   margin-left: 0;
 }
 
-.backs i:nth-child(odd) {
-  transform: rotate(-4deg);
+.backs i:nth-child(1) {
+  transform: rotate(-12deg) translateY(4px);
 }
-
-.backs i:nth-child(even) {
-  transform: rotate(3deg) translateY(2px);
+.backs i:nth-child(2) {
+  transform: rotate(-7deg) translateY(1px);
+}
+.backs i:nth-child(3) {
+  transform: rotate(-2deg);
+}
+.backs i:nth-child(4) {
+  transform: rotate(3deg);
+}
+.backs i:nth-child(5) {
+  transform: rotate(8deg) translateY(1px);
+}
+.backs i:nth-child(6) {
+  transform: rotate(13deg) translateY(4px);
 }
 
 .reveal-actions {

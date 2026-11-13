@@ -501,6 +501,12 @@ const SKELETON = {
       <div class="hero">
         ${logo(true)}
         <p class="tagline">Konuşamayan kaptan, tek kartlık sinyal, bütün takım tek karar.</p>
+        <div class="fan" aria-hidden="true">
+          <span class="fc fc-t"><small>${icon('check', { size: 11 })} HEDEF</small>GORİL</span>
+          <span class="fc fc-p"><small>${icon('zap', { size: 11 })} PARAZİT</small>PİYANO</span>
+          <span class="fc fc-s">${icon('signal', { size: 54, cls: 'wm' })}<small>SİNYAL</small>ÜNLÜ</span>
+          <span class="chip pc0"></span><span class="chip pc1"></span><span class="chip pc3"></span>
+        </div>
       </div>
       <section class="panel">
         <form id="f-home" class="join-form" autocomplete="off" novalidate>
@@ -538,9 +544,11 @@ const SKELETON = {
     <main class="game">
       <header class="hud" id="g-hud"></header>
       <div class="game-main">
-        <section class="status" id="g-status"><div class="say" id="g-say" aria-live="polite"></div><span class="secs" id="g-secs"></span><span class="bar"><i id="g-bar"></i></span><div id="g-wait" class="wait-slot"></div></section>
-        <section class="signals" id="g-signals" aria-label="Sinyaller"></section>
-        <section class="board" id="g-board" aria-label="Kartlar"></section>
+        <section class="status" id="g-status"><span class="phase-ic" id="g-ic"></span><div class="say" id="g-say" aria-live="polite"></div><span class="timer" id="g-timer"><svg viewBox="0 0 44 44" aria-hidden="true"><circle class="track" cx="22" cy="22" r="19"/><circle class="arc" id="g-arc" cx="22" cy="22" r="19"/></svg><span class="secs" id="g-secs"></span></span><div id="g-wait" class="wait-slot"></div></section>
+        <section class="table" aria-label="Masa">
+          <div class="signals" id="g-signals" aria-label="Sinyaller"></div>
+          <div class="board" id="g-board" aria-label="Kartlar"></div>
+        </section>
         <section class="dock" id="g-dock"></section>
         <section class="players" id="g-players" aria-label="Oyuncular"></section>
       </div>
@@ -641,7 +649,8 @@ function hudHtml() {
   const run = s.run;
   const r = round();
   const hearts = Array.from({ length: run.maxLives }, (_, i) => icon('heart', { size: 18, fill: true, cls: i < run.lives ? '' : 'lost' })).join('');
-  return `<div class="where"><b>TUR ${r?.no ?? run.roundNo}</b><span>${esc(r?.level.name ?? '')}${r ? ` · ${r.level.parasites} parazit` : ''} · ${esc(s.teamName)}</span></div>
+  const lvl = r ? `<em class="lvl l${r.level.index}">${esc(r.level.name)}</em>` : '';
+  return `<div class="where"><b>TUR ${r?.no ?? run.roundNo} ${lvl}</b><span>${r ? `${r.level.parasites} parazit · ` : ''}${esc(s.teamName)}</span></div>
     <div class="lives" title="Can: ${run.lives}/${run.maxLives}" aria-label="Can ${run.lives}">${hearts}</div>
     <div class="score" aria-label="Puan ${run.score}"><b>${run.score}</b><span>puan</span></div>
     <button class="icon-btn" data-action="menu" aria-label="Menü">${icon('menu', { size: 20 })}</button>`;
@@ -704,6 +713,8 @@ function renderStatus() {
   const s = st();
   const info = statusInfo();
   setClass('g-status', `status ${info.cls}`);
+  const ic = s.phase === 'REVEAL' ? { hit: 'check', parasite: 'zap', silence: 'minus', cancelled: 'refresh' }[round().result?.kind] ?? 'refresh' : s.phase === 'SIGNAL' ? 'signal' : isCaptain() ? 'micOff' : 'hand';
+  put('g-ic', icon(ic, { size: 22 }));
   put(
     'g-say',
     info.big
@@ -723,7 +734,7 @@ function renderSignals() {
     if (sig) {
       const old = i < r.signals.length - 1 ? ' old' : '';
       out.push(
-        `<div class="sig filled${old}"><span class="n">${i + 1}</span><span class="pts">${pts}</span><span class="w${sig.word.length > 8 ? ' long' : ''}">${esc(sig.word)}</span>${sig.auto ? '<span class="auto">süre doldu</span>' : ''}</div>`,
+        `<div class="sig filled${old}">${icon('signal', { size: 54, cls: 'wm' })}<span class="n">${i + 1}</span><span class="pts">${pts}</span><span class="w${sig.word.length > 8 ? ' long' : ''}">${esc(sig.word)}</span>${sig.auto ? '<span class="auto">süre doldu</span>' : ''}</div>`,
       );
     } else {
       const next = i === r.signals.length && s.phase === 'SIGNAL' ? ' next' : '';
@@ -780,7 +791,7 @@ function tileHtml(card, i) {
   const wcls = len >= 10 ? ' l10' : len >= 8 ? ' l8' : '';
   const role = cap && !card.revealed ? { target: ', hedef', parasite: ', parazit' }[cap.roles[i]] ?? '' : '';
   return `<button class="${cls.join(' ')}" data-action="tile" data-i="${i}" ${canPick ? '' : 'disabled'} aria-pressed="${mine}" aria-label="${esc(card.word)}${role}${card.revealed ? `, açık: ${tag.replace(/<[^>]+>/g, '').trim()}` : ''}">
-    ${tag ? `<span class="tag">${tag}</span>` : ''}<span class="word${wcls}">${esc(card.word)}</span>${toks ? `<span class="toks">${toks}</span>` : ''}${locking ? '<span class="lockn" data-lock></span>' : ''}
+    ${tag ? `<span class="tag">${tag}</span>` : ''}${card.revealed ? '' : icon('signal', { size: 13, cls: 'pip' })}<span class="word${wcls}">${esc(card.word)}</span>${toks ? `<span class="toks">${toks}</span>` : ''}${locking ? '<span class="lockn" data-lock></span>' : ''}
   </button>`;
 }
 
@@ -809,7 +820,7 @@ function renderDock() {
     const cards = hand
       .map(
         (w) =>
-          `<button class="hcard${S.sel === w ? ' sel' : ''}" data-action="card" data-w="${esc(w)}" ${signalPhase ? '' : 'disabled'} aria-pressed="${S.sel === w}">${esc(w)}</button>`,
+          `<button class="hcard${S.sel === w ? ' sel' : ''}" data-action="card" data-w="${esc(w)}" ${signalPhase ? '' : 'disabled'} aria-pressed="${S.sel === w}">${icon('signal', { size: 40, cls: 'wm' })}<span>${esc(w)}</span></button>`,
       )
       .join('');
     const actions = signalPhase
@@ -819,7 +830,7 @@ function renderDock() {
         </div>
         <p class="dock-note">Seçili karta tekrar dokunmak da oynar. Elini turda bir kez değiştirebilirsin.</p>`
       : `<p class="dock-note">Elin bir sonraki sinyal için hazır. Şimdi sadece izle.</p>`;
-    put('g-dock', `<div class="hand">${cards}</div>${actions}`);
+    put('g-dock', `<div class="hand${S.sel ? ' has-sel' : ''}">${cards}</div>${actions}`);
     return;
   }
   if (s.phase === 'SIGNAL') {
@@ -956,7 +967,10 @@ function tick() {
   let remaining = null;
   if (s.endsAt) remaining = Math.max(0, s.endsAt - serverNow());
   if (secsEl) secsEl.textContent = remaining == null ? '' : String(Math.ceil(remaining / 1000));
-  if (bar) bar.style.transform = `scaleX(${remaining == null || !s.phaseMs ? (s.waiting ? 1 : 0) : Math.min(1, remaining / s.phaseMs)})`;
+  const frac = remaining == null || !s.phaseMs ? (s.waiting ? 1 : 0) : Math.min(1, remaining / s.phaseMs);
+  if (bar) bar.style.transform = `scaleX(${frac})`;
+  const arc = document.getElementById('g-arc');
+  if (arc) arc.style.strokeDashoffset = String(119.38 * (1 - frac));
   const urgent = remaining != null && remaining <= 10_000 && (s.phase === 'SIGNAL' || s.phase === 'GUESS');
   statusEl?.classList.toggle('urgent', urgent);
   const lock = round()?.lock;
