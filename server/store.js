@@ -39,6 +39,15 @@ export class TeamStore {
     return this.teams.get(teamKey(name)) ?? null;
   }
 
+  /** Rekor tablosu: en iyi skora göre ilk n takım (ortak mod). */
+  topTeams(n = 5) {
+    return [...this.teams.values()]
+      .filter((t) => t.bestScore > 0)
+      .sort((a, b) => b.bestScore - a.bestScore || a.runs - b.runs)
+      .slice(0, n)
+      .map((t) => ({ name: t.name, bestScore: t.bestScore, runs: t.runs }));
+  }
+
   /** Oyun sonu: rekoru günceller. */
   recordRun(name, score) {
     const team = this.getTeam(name);

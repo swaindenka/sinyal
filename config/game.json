@@ -1,12 +1,15 @@
 {
+  "defaultMode": "coop",
   "minPlayers": 2,
   "maxPlayers": 8,
   "lives": 3,
   "lifeEveryHits": 5,
-  "boardSize": 8,
+  "boardSize": 12,
   "maxSignals": 3,
   "points": [3, 2, 1],
-  "handSize": 6,
+  "lightningSeconds": 15,
+  "lightningBonus": 1,
+  "handSize": 8,
   "handNitelik": 2,
   "handKin": 1,
   "redrawsPerRound": 1,
@@ -14,15 +17,20 @@
   "guessSeconds": 60,
   "lockSeconds": 3,
   "revealSeconds": 6,
+  "duelMinPlayers": 4,
+  "duelRoundsPerTeam": 4,
+  "stealSeconds": 20,
+  "stealPoints": 2,
+  "duelParasitePenalty": 1,
   "playerReconnectSeconds": 60,
   "hostGraceSeconds": 10,
   "emptyRoomSeconds": 900,
   "tokenRateLimitMs": 150,
   "levels": [
     { "from": 1, "name": "Isınma", "parasites": 1, "near": 0, "decoys": 0 },
-    { "from": 4, "name": "Kolay", "parasites": 1, "near": 1, "decoys": 0 },
+    { "from": 4, "name": "Kolay", "parasites": 2, "near": 1, "decoys": 0 },
     { "from": 7, "name": "Orta", "parasites": 2, "near": 1, "decoys": 1 },
-    { "from": 10, "name": "Zor", "parasites": 2, "near": 2, "decoys": 1, "guessSeconds": 50 },
-    { "from": 13, "name": "Usta", "parasites": 3, "near": 2, "decoys": 1, "signalSeconds": 35, "guessSeconds": 45 }
+    { "from": 10, "name": "Zor", "parasites": 3, "near": 2, "decoys": 1, "guessSeconds": 50 },
+    { "from": 13, "name": "Usta", "parasites": 3, "near": 2, "decoys": 2, "signalSeconds": 35, "guessSeconds": 45 }
   ]
 }
