@@ -48,11 +48,12 @@ export function seeded(seed = 1) {
 /** Gerçek deste; testler kelimelere değil rollere bakar. */
 export const deck = Deck.load();
 
+/** Testlerde yıldırım bonusu kapalı (puan hesapları sade kalsın); ilgili test açıkça açar. */
 export function testConfig(overrides = {}) {
-  return { ...loadConfig(), tokenRateLimitMs: 0, ...overrides };
+  return { ...loadConfig(), tokenRateLimitMs: 0, lightningSeconds: 0, ...overrides };
 }
 
-export function makeRoom({ players = 3, config = testConfig(), seed = Number(process.env.TEST_SEED || 7), store = new TeamStore() } = {}) {
+export function makeRoom({ players = 3, config = testConfig(), seed = Number(process.env.TEST_SEED || 7), store = new TeamStore(), mode = null } = {}) {
   const clock = new FakeClock();
   const sent = [];
   const room = new Room({
@@ -66,6 +67,7 @@ export function makeRoom({ players = 3, config = testConfig(), seed = Number(pro
   });
   const ps = [];
   for (let i = 0; i < players; i++) ps.push(room.join({ name: `Oyuncu${i + 1}` }));
+  if (mode) room.handle(ps[0].id, { type: 'set_mode', mode });
   const h = {
     room,
     clock,
@@ -96,6 +98,9 @@ export function makeRoom({ players = 3, config = testConfig(), seed = Number(pro
     pass() {
       h.pick(PASS);
     },
+    /** Bir oyuncunun bireysel puanı. */
+    points: (p) => room.players.get(p.id).stats.points,
+    team: (t) => [...room.players.values()].filter((p) => !p.left && p.team === t),
     lastPrivate(playerId, type) {
       for (let i = sent.length - 1; i >= 0; i--) if (sent[i].to === playerId && sent[i].msg.type === type) return sent[i].msg;
       return null;

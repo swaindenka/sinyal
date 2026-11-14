@@ -45,23 +45,25 @@ test('takım adı ve kaptan sırası lobide düzenlenir', () => {
 
 // ───────────────────────── tur başlangıcı ─────────────────────────
 
-test('tur: 8 kart, 1 hedef, seviye kadar parazit; roller yalnızca kaptana gider', () => {
+test('tur: 12 kart, 1 hedef, seviye kadar parazit; roller yalnızca kaptana gider', () => {
   const h = makeRoom({ players: 3 });
   h.start();
   const r = h.room.round;
-  assert.equal(r.board.length, 8);
+  assert.equal(r.board.length, h.config.boardSize);
+  assert.equal(h.config.boardSize, 12);
   assert.equal(r.board.filter((c) => c.role === 'target').length, 1);
   assert.equal(r.board.filter((c) => c.role === 'parasite').length, 1);
   assert.equal(h.captain().id, h.ps[0].id);
 
   const pub = h.state();
   assert.ok(pub.round.board.every((c) => c.role === null && !c.revealed));
-  assert.equal(pub.round.handCount, 6);
+  assert.equal(pub.round.handCount, h.config.handSize);
+  assert.equal(h.config.handSize, 8);
   assert.equal(JSON.stringify(pub).includes('"target"'), false);
 
   const priv = h.lastPrivate(h.ps[0].id, 'captain');
-  assert.equal(priv.roles.length, 8);
-  assert.equal(priv.hand.length, 6);
+  assert.equal(priv.roles.length, 12);
+  assert.equal(priv.hand.length, 8);
   for (const g of h.guessers()) assert.equal(h.lastPrivate(g.id, 'captain'), null);
 });
 
@@ -70,7 +72,7 @@ test('elde tahtadaki kelimelerle çakışan kart olmaz', () => {
     const h = makeRoom({ players: 2, seed });
     h.start();
     const words = h.room.round.board.map((c) => c.word);
-    assert.equal(new Set(words).size, 8);
+    assert.equal(new Set(words).size, words.length);
     for (const w of h.room.round.hand) assert.ok(!words.includes(w), `${w} tahtada da var`);
   }
 });
@@ -91,7 +93,7 @@ test('sinyali yalnızca kaptan, elindeki karttan oynar', () => {
   h.room.handle(cap.id, { type: 'play_signal', word: card.toLocaleLowerCase('tr-TR') });
   assert.equal(h.room.phase, Phase.GUESS);
   assert.deepEqual(h.room.round.signals, [{ word: card, auto: false }]);
-  assert.equal(h.room.round.hand.length, 6, 'oynanan kartın yerine yenisi gelir');
+  assert.equal(h.room.round.hand.length, h.config.handSize, 'oynanan kartın yerine yenisi gelir');
   assert.ok(!h.room.round.hand.includes(card));
   assert.deepEqual(h.lastPrivate(cap.id, 'captain').hand, h.room.round.hand);
 });
@@ -102,7 +104,7 @@ test('eli değiştirme turda bir kez', () => {
   const cap = h.captain();
   const before = [...h.room.round.hand];
   h.room.handle(cap.id, { type: 'redraw' });
-  assert.equal(h.room.round.hand.length, 6);
+  assert.equal(h.room.round.hand.length, h.config.handSize);
   assert.ok(h.room.round.hand.every((w) => !before.includes(w)), 'yeni el eskisinden farklı');
   h.room.handle(cap.id, { type: 'redraw' });
   assert.equal(h.lastError(cap.id), 'NO_REDRAWS');
@@ -336,7 +338,16 @@ test('canlar bitince oyun biter, rekor kaydedilir, yeniden başlanabilir', () =>
   assert.equal(s.rounds, 4);
   assert.equal(s.hits, 1);
   assert.equal(s.record.isNewRecord, true);
-  assert.equal(s.bestCaptain.name, 'Oyuncu1');
+  // Bireysel: Oyuncu1 kaptanken +3, iki kez parazite ilk jetonu koydu (−2) → 1; Oyuncu2 öncü +1, tuzak −1 → 0.
+  assert.equal(s.mvp.name, 'Oyuncu1');
+  assert.deepEqual(
+    s.standings.map((x) => [x.name, x.points]),
+    [
+      ['Oyuncu1', 1],
+      ['Oyuncu2', 0],
+      ['Oyuncu3', 0],
+    ],
+  );
   assert.equal(s.history.length, 4);
   assert.deepEqual(
     s.history.map((x) => x.kind),
@@ -433,4 +444,229 @@ test('tek başına kalan oda kapanır', () => {
 
 test('pas sabiti istemciyle aynı', () => {
   assert.equal(PASS, 'pass');
+});
+
+// ───────────────────────── yıldırım ve bireysel puan ─────────────────────────
+
+test('yıldırım: sinyalden sonra 15 sn içinde bulunan hedef +1', () => {
+  const h = makeRoom({ players: 3, config: testConfig({ lightningSeconds: 15 }) });
+  h.start();
+  h.signal();
+  h.pickRole('target');
+  assert.equal(h.room.run.score, 4);
+  assert.equal(h.room.round.result.lightning, true);
+
+  const slow = makeRoom({ players: 3, config: testConfig({ lightningSeconds: 15 }) });
+  slow.start();
+  slow.signal();
+  slow.clock.advance(16_000);
+  slow.pickRole('target');
+  assert.equal(slow.room.run.score, 3);
+  assert.equal(slow.room.round.result.lightning, false);
+});
+
+test('öncü: hedefe jetonunu ilk koyan +1, parazite ilk koyan −1; kaptan takım puanını alır', () => {
+  const h = makeRoom({ players: 4 });
+  h.start();
+  h.signal();
+  const [a, b, c] = h.guessers();
+  const t = h.roleIndex('target');
+  h.room.handle(b.id, { type: 'token', target: t });
+  h.clock.advance(500);
+  h.room.handle(a.id, { type: 'token', target: t });
+  h.room.handle(c.id, { type: 'token', target: t });
+  h.clock.advance(h.config.lockSeconds * 1000);
+  assert.equal(h.room.round.result.leaderId, b.id);
+  assert.equal(h.points(b), 1);
+  assert.equal(h.points(a), 0);
+  assert.equal(h.points(h.captain()), 3);
+
+  h.room.handle(h.room.hostId, { type: 'next' });
+  h.signal();
+  const gs = h.guessers();
+  const pz = h.roleIndex('parasite');
+  h.room.handle(gs[1].id, { type: 'token', target: pz });
+  h.clock.advance(300);
+  for (const g of gs) if (g !== gs[1]) h.room.handle(g.id, { type: 'token', target: pz });
+  h.clock.advance(h.config.lockSeconds * 1000);
+  assert.equal(h.room.round.result.leaderId, gs[1].id);
+  assert.equal(h.room.players.get(gs[1].id).stats.traps, 1);
+});
+
+test('öncü jetonu kartta değilse sayılmaz: sonradan taşıyan öncü olur', () => {
+  const h = makeRoom({ players: 3 });
+  h.start();
+  h.signal();
+  const [a, b] = h.guessers();
+  const t = h.roleIndex('target');
+  const n = h.roleIndex('neutral');
+  h.room.handle(a.id, { type: 'token', target: t });
+  h.clock.advance(200);
+  h.room.handle(a.id, { type: 'token', target: n });
+  h.clock.advance(200);
+  h.room.handle(b.id, { type: 'token', target: t });
+  h.clock.advance(200);
+  h.room.handle(a.id, { type: 'token', target: t });
+  h.clock.advance(h.config.lockSeconds * 1000);
+  assert.equal(h.room.round.result.leaderId, b.id);
+});
+
+test('rekor tablosu en iyi skora göre sıralı', () => {
+  const store = new TeamStore();
+  store.recordRun('Kartallar', 12);
+  store.recordRun('Radar', 20);
+  store.recordRun('Pusula', 0);
+  store.recordRun('Kartallar', 8);
+  assert.deepEqual(
+    store.topTeams(5).map((t) => [t.name, t.bestScore]),
+    [
+      ['Radar', 20],
+      ['Kartallar', 12],
+    ],
+  );
+  const h = makeRoom({ players: 2, store });
+  assert.equal(h.state().leaderboard.length, 2);
+});
+
+// ───────────────────────── düello ─────────────────────────
+
+test('düello: en az 4 oyuncu ve her takımda en az 2 kişi gerekir', () => {
+  const h = makeRoom({ players: 3, mode: 'duel' });
+  h.start();
+  assert.equal(h.lastError(h.ps[0].id), 'NOT_ENOUGH_PLAYERS');
+  const d = h.room.join({ name: 'Dört' });
+  assert.deepEqual(h.room.teamCounts(), [2, 2], 'yeni gelen az kişili takıma girer');
+  h.room.handle(h.ps[0].id, { type: 'set_player_team', playerId: d.id, team: 0 });
+  h.start();
+  assert.equal(h.lastError(h.ps[0].id), 'TEAMS_UNBALANCED');
+  h.room.handle(h.ps[0].id, { type: 'set_player_team', playerId: d.id, team: 1 });
+  h.start();
+  assert.equal(h.room.phase, Phase.SIGNAL);
+  assert.equal(h.state().mode, 'duel');
+});
+
+test('düello: takımlar sırayla oynar, kaptan sırası gelen takımdan, rakip jeton koyamaz', () => {
+  const h = makeRoom({ players: 4, mode: 'duel' });
+  h.start();
+  const r = h.room.round;
+  assert.equal(r.team, 0);
+  assert.equal(h.captain().team, 0);
+  h.signal();
+  const rival = h.team(1)[0];
+  h.room.handle(rival.id, { type: 'token', target: 0 });
+  assert.equal(h.lastError(rival.id), 'NOT_YOUR_TURN');
+  assert.deepEqual(
+    h.guessers().map((g) => g.team),
+    [0],
+  );
+  h.pickRole('target');
+  assert.deepEqual(h.room.run.teamScores, [3, 0]);
+  h.room.handle(h.room.hostId, { type: 'next' });
+  assert.equal(h.room.round.team, 1);
+  assert.equal(h.captain().team, 1);
+  assert.equal(h.room.round.level.name, 'Isınma', 'iki takım da aynı seviyede oynar');
+  h.room.handle(h.room.hostId, { type: 'next' });
+});
+
+test('düello: parazit −1 puan ve rakibe çalma; çalma isabeti +2', () => {
+  const h = makeRoom({ players: 4, mode: 'duel' });
+  h.start();
+  h.signal();
+  h.pickRole('parasite');
+  assert.equal(h.room.phase, Phase.STEAL);
+  assert.deepEqual(h.room.run.teamScores, [-1, 0]);
+  assert.deepEqual(
+    h.guessers().map((g) => g.team),
+    [1, 1],
+    'çalmada rakip takımın hepsi (kaptanı yok) jeton koyar',
+  );
+  const own = h.team(0)[1];
+  h.room.handle(own.id, { type: 'token', target: 0 });
+  assert.equal(h.lastError(own.id), 'NOT_YOUR_TURN');
+  h.pickRole('target');
+  assert.equal(h.room.phase, Phase.REVEAL);
+  assert.deepEqual(h.room.run.teamScores, [-1, 2]);
+  assert.equal(h.room.round.result.kind, 'parasite');
+  assert.equal(h.room.round.result.steal.result, 'hit');
+  assert.equal(h.state().run.history[0].steal.points, 2);
+});
+
+test('düello: 3 sinyalde bulunamazsa çalma; çalmada pas ya da süre dolması puan getirmez', () => {
+  const h = makeRoom({ players: 4, mode: 'duel' });
+  h.start();
+  for (let i = 0; i < 3; i++) {
+    h.signal();
+    h.pass();
+  }
+  assert.equal(h.room.phase, Phase.STEAL);
+  assert.equal(h.room.round.steal.cause, 'silence');
+  h.clock.advance(h.config.stealSeconds * 1000);
+  assert.equal(h.room.phase, Phase.REVEAL);
+  assert.deepEqual(h.room.run.teamScores, [0, 0]);
+  assert.equal(h.room.round.result.kind, 'silence');
+  assert.equal(h.room.round.result.steal.result, 'pass');
+});
+
+test('düello: çalmada parazit açılırsa çalan takım −1', () => {
+  const levels = [{ from: 1, name: 'Deneme', parasites: 2, near: 0, decoys: 0 }];
+  const h = makeRoom({ players: 4, mode: 'duel', config: testConfig({ levels }) });
+  h.start();
+  h.signal();
+  h.pickRole('parasite');
+  assert.equal(h.room.phase, Phase.STEAL);
+  h.pickRole('parasite');
+  assert.equal(h.room.round.result.steal.result, 'parasite');
+  assert.deepEqual(h.room.run.teamScores, [-1, -1]);
+});
+
+test('düello: her takım 4 tur oynar, kazanan belli olur', () => {
+  const h = makeRoom({ players: 4, mode: 'duel' });
+  h.start();
+  for (let i = 0; i < 8; i++) {
+    h.signal();
+    if (h.room.round.team === 0) h.pickRole('target');
+    else {
+      h.pass();
+      h.signal();
+      h.pass();
+      h.signal();
+      h.pass();
+      h.clock.advance(h.config.stealSeconds * 1000);
+    }
+    h.room.handle(h.room.hostId, { type: 'next' });
+  }
+  assert.equal(h.room.phase, Phase.END);
+  const s = h.state().summary;
+  assert.equal(s.mode, 'duel');
+  assert.equal(s.rounds, 8);
+  assert.deepEqual(
+    s.teams.map((t) => t.score),
+    [12, 0],
+  );
+  assert.equal(s.winner, 0);
+  assert.equal(h.store.peekTeam(h.room.teamName), null, 'düello takım rekoru yazmaz');
+  // Seviye her tur çiftinde artar: 4. çift Zor.
+  assert.equal(s.history[7].level, 'Zor');
+});
+
+test('düello: takımda tahminci kalmazsa tur cezasız geçer', () => {
+  const h = makeRoom({ players: 4, mode: 'duel' });
+  h.start();
+  h.signal();
+  h.pickRole('target');
+  const blue = h.team(1);
+  h.room.disconnect(blue[0].id);
+  h.room.handle(h.room.hostId, { type: 'next' });
+  assert.equal(h.room.round.team, 1);
+  assert.equal(h.room.round.result.kind, 'cancelled');
+  assert.equal(h.room.round.result.reason, 'team_short');
+});
+
+test('düelloda karıştırmak takımları dengeler; mod yalnızca lobide değişir', () => {
+  const h = makeRoom({ players: 6, mode: 'duel' });
+  h.room.handle(h.ps[0].id, { type: 'shuffle' });
+  assert.deepEqual(h.room.teamCounts(), [3, 3]);
+  h.start();
+  h.room.handle(h.ps[0].id, { type: 'set_mode', mode: 'coop' });
+  assert.equal(h.lastError(h.ps[0].id), 'BAD_PHASE');
 });

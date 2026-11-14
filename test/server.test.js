@@ -120,7 +120,7 @@ test('WebSocket: oda kur, katıl, yeniden bağlan', async () => {
   a.send({ type: 'start' });
   const cap = await a.wait((m) => m.type === 'captain');
   assert.equal(cap.roles.filter((r) => r === 'target').length, 1);
-  assert.equal(cap.hand.length, 6);
+  assert.equal(cap.hand.length, 8);
   const sig = await b2.wait((m) => m.type === 'state' && m.phase === 'SIGNAL');
   assert.equal(sig.round.captainId, welcome.playerId);
   assert.ok(sig.round.board.every((c) => c.role === null));
@@ -130,7 +130,8 @@ test('WebSocket: oda kur, katıl, yeniden bağlan', async () => {
   const locked = await a.wait((m) => m.type === 'state' && m.round?.lock);
   assert.equal(locked.round.lock.target, cap.roles.indexOf('target'));
   const hit = await a.wait((m) => m.type === 'state' && m.phase === 'REVEAL', 6000);
-  assert.equal(hit.run.score, 3);
+  assert.equal(hit.run.score, 4, '1. sinyalde 3 puan + yıldırım 1');
+  assert.equal(hit.round.result.lightning, true);
   assert.equal(hit.round.result.kind, 'hit');
   a.ws.close();
   b2.ws.close();
