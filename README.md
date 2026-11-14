@@ -2,21 +2,36 @@
 
 Konuşamayan kaptan, tek kartlık sinyal, bütün takım tek karar.
 
-SİNYAL, 2–8 kişilik bir ekibin tarayıcıda, sesli sohbet (Discord vb.) eşliğinde birlikte oynadığı
-gerçek zamanlı bir **çağrışım kart oyunu**. Hesap ve kurulum gerektirmez; telefon ve bilgisayarda çalışır.
+SİNYAL, 2–8 kişilik bir ekibin tarayıcıda, sesli sohbet (Discord vb.) eşliğinde oynadığı gerçek
+zamanlı bir **çağrışım kart oyunu**. İki modu var: hep birlikte rekor kovaladığınız **ortak oyun** ve
+iki takımın kapıştığı **düello**. Hesap ve kurulum gerektirmez; telefon ve bilgisayarda çalışır.
 
 ## Nasıl oynanır
 
-1. Masada **8 kelime kartı** var. Her turda sıradaki oyuncu **kaptan** olur ve hangi kartın **hedef**,
+1. Masada **12 kelime kartı** var. Her turda sıradaki oyuncu **kaptan** olur ve hangi kartın **hedef**,
    hangilerinin **parazit** olduğunu yalnızca o görür. Kaptan konuşamaz.
-2. Kaptan elindeki **6 kelime kartından** birini **sinyal** olarak oynar (ör. hedef BULUT için PAMUK).
+2. Kaptan elindeki **8 kelime kartından** birini **sinyal** olarak oynar (ör. hedef BULUT için PAMUK).
    Turda bir kez elini tamamen değiştirebilir.
 3. Takım konuşur ve **jetonlarını** kartlara koyar. Bütün tahmincilerin jetonu aynı kartta birleşince
    3 saniyelik geri sayımla kart açılır. **Pas** alanında birleşilirse kart açılmadan yeni sinyal istenir.
-4. Hedef 1. sinyalden sonra bulunursa **3**, 2.den sonra **2**, 3.den sonra **1** puan. Boş kart çıkarsa
-   kaptan yeni sinyal oynar. **Parazit** ya da 3 sinyalde bulamamak **1 can** götürür.
-5. Takım 3 canla başlar, her 5 isabette 1 can geri gelir. Canlar bitince oyun biter ve skor takım
+4. Hedef 1. sinyalden sonra bulunursa **3**, 2.den sonra **2**, 3.den sonra **1** puan; sinyalden sonraki
+   15 saniyede bulunursa **yıldırım +1**. Boş kart çıkarsa kaptan yeni sinyal oynar. **Parazit** ya da
+   3 sinyalde bulamamak **1 can** götürür.
+5. Ortak oyunda takım 3 canla başlar, her 5 isabette 1 can geri gelir. Canlar bitince oyun biter ve skor takım
    adına rekor olarak kaydedilir.
+
+**Bireysel puan:** kaptan takımına kazandırdığı puanı alır; hedefe jetonunu ilk koyan +1, açılan
+parazite ilk koyan −1. Puanlar oyun boyunca görünür, oyun sonunda sıralama ve MVP çıkar. Ortak oyunda
+takımların en iyi skorları lobideki **rekor tablosunda** sıralanır.
+
+### Düello (4–8 oyuncu)
+
+MAVİ ve TURUNCU takımlar sırayla oynar, her takım 4 tur. Kaptan kendi takımına sinyal verir, rakip
+takım aynı sesli kanalda dinler. Parazit −1 puan. Bir takım parazite basar ya da 3 sinyalde hedefi
+bulamazsa rakip takıma **20 saniyelik çalma** hakkı geçer: hedefi bulurlarsa **+2**, parazite basarlarsa
+−1. 8 tur sonunda puanı yüksek olan kazanır.
+
+### Zorluk
 
 Turlar ilerledikçe parazitler artar ve hedefle **aynı kategoriden** gelmeye başlar (hedef KEDİ,
 parazit KÖPEK). Kaptanın elinde her zaman hedefin kategorisinden bir kart bulunur: ilk turlarda
@@ -25,10 +40,12 @@ güvenli bir ipucudur, sonra tuzağa dönüşür.
 | Seviye | Tur | Parazit | Hedefe benzeyen parazit | Süre (sinyal / karar) |
 |---|---|---|---|---|
 | Isınma | 1–3 | 1 | 0 | 45 / 60 sn |
-| Kolay | 4–6 | 1 | 1 | 45 / 60 sn |
+| Kolay | 4–6 | 2 | 1 | 45 / 60 sn |
 | Orta | 7–9 | 2 | 1 | 45 / 60 sn |
-| Zor | 10–12 | 2 | 2 | 45 / 50 sn |
+| Zor | 10–12 | 3 | 2 | 45 / 50 sn |
 | Usta | 13+ | 3 | 2 | 35 / 45 sn |
+
+Düelloda seviye her tur çiftinde bir basamak artar.
 
 Tasarımın gerekçeleri ve ayrıntılı kurallar: [`docs/TASARIM.md`](docs/TASARIM.md). İlk sürümün
 (harf renkli kelime oyunu) dokümanı tarih olarak [`docs/SINYAL_SPEC.md`](docs/SINYAL_SPEC.md)'de duruyor.
@@ -80,9 +97,13 @@ Bütün sayılar [`config/game.json`](config/game.json)'da:
 |---|---|---|
 | `minPlayers` / `maxPlayers` | 2 / 8 | Oyuncu sınırları |
 | `lives`, `lifeEveryHits` | 3, 5 | Başlangıç canı; kaç isabette bir can geri gelir (0: hiç) |
-| `boardSize` | 8 | Masadaki kart sayısı |
+| `defaultMode` | `coop` | Yeni odanın modu (`coop` / `duel`) |
+| `boardSize` | 12 | Masadaki kart sayısı (seviyede `boardSize` ile değiştirilebilir) |
 | `maxSignals`, `points` | 3, [3, 2, 1] | Turdaki sinyal hakkı ve kaçıncı sinyalde kaç puan |
-| `handSize`, `handNitelik`, `handKin` | 6, 2, 1 | El büyüklüğü; kaçı sıfat, kaçı hedefin kategorisinden |
+| `handSize`, `handNitelik`, `handKin` | 8, 2, 1 | El büyüklüğü; kaçı sıfat, kaçı hedefin kategorisinden |
+| `lightningSeconds`, `lightningBonus` | 15, 1 | Yıldırım süresi ve bonusu (0: kapalı) |
+| `duelMinPlayers`, `duelRoundsPerTeam` | 4, 4 | Düello için en az oyuncu, takım başına tur |
+| `stealSeconds`, `stealPoints`, `duelParasitePenalty` | 20, 2, 1 | Çalma süresi ve puanı, düelloda parazit cezası |
 | `redrawsPerRound` | 1 | Turda kaç kez el değiştirilebilir |
 | `signalSeconds`, `guessSeconds` | 45, 60 | Kaptanın sinyal, takımın karar süresi |
 | `lockSeconds` | 3 | Jetonlar birleşince kartın açılmasına kalan süre |
@@ -108,9 +129,9 @@ aynı kelimeler (KAR/KARPUZ, KRAL/KRALİÇE) aynı tahtaya ya da ele gelmez.
 ```
 server/
   index.js    HTTP (statik dosyalar, /health) + WebSocket, oda kayıtları
-  room.js     oyun motoru: LOBBY → SIGNAL → GUESS → REVEAL → … → END
+  room.js     oyun motoru: LOBBY → SIGNAL → GUESS → [STEAL] → REVEAL → … → END, ortak oyun ve düello
   deck.js     tahta ve el dağıtımı, çakışma kuralı
-  store.js    takım rekorları (PostgreSQL ya da dosya)
+  store.js    takım rekorları ve rekor tablosu (PostgreSQL ya da dosya)
 public/
   index.html, style.css, app.js, icons.js, fonts/ (Oswald, OFL)
 data/cards.json   kelime destesi

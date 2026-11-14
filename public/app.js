@@ -13,7 +13,10 @@ const ERRORS = {
   KICKED: 'Oda sahibi seni odadan çıkardı.',
   SERVER_FULL: 'Sunucu şu an dolu, biraz sonra dene.',
   NOT_HOST: 'Bunu yalnızca oda sahibi yapabilir.',
-  NOT_ENOUGH_PLAYERS: 'Başlamak için en az 2 oyuncu gerekli.',
+  NOT_ENOUGH_PLAYERS: 'Başlamak için yeterli oyuncu yok (ortak oyun 2, düello 4 kişi).',
+  TEAMS_UNBALANCED: 'Düelloda her takımda en az 2 oyuncu olmalı.',
+  NOT_YOUR_TURN: 'Şu an sıra sizde değil.',
+  BAD_MODE: 'Bilinmeyen oyun modu.',
   TEAM_INVALID: 'Takım adı boş olamaz.',
   BAD_PHASE: 'Şu an olmaz.',
   NOT_CAPTAIN: 'Sinyali kaptan oynar.',
@@ -90,6 +93,25 @@ const pname = (id) => player(id)?.name ?? 'Biri';
 const serverNow = () => Date.now() + S.offset;
 const capInfo = () => (S.cap && round() && S.cap.key === round().key ? S.cap : null);
 const myToken = () => round()?.tokens?.[S.me];
+const me = () => player(S.me);
+const teamName = (t) => S.st?.duelTeams?.[t] ?? '';
+
+/** Şu an jeton koyabilir miyim? (tahminde sırası gelen takımın tahmincileri, çalmada rakip takım) */
+function canPickNow() {
+  const s = st();
+  const r = round();
+  const p = me();
+  if (!r || !p || s.waiting) return false;
+  if (s.phase === 'STEAL') return Boolean(r.steal) && p.team === r.steal.team;
+  if (s.phase !== 'GUESS' || r.captainId === S.me) return false;
+  return r.team == null || p.team === r.team;
+}
+
+function vibrate(pattern) {
+  try {
+    if (!S.muted) navigator.vibrate?.(pattern);
+  } catch {}
+}
 
 // ───────────────────────── bağlantı ─────────────────────────
 
@@ -265,12 +287,17 @@ function runEvents(next) {
 }
 
 function onEvent(ev, next) {
-  const name = (id) => next.players.find((p) => p.id === id)?.name ?? 'Biri';
+  const myTeam = next.players.find((p) => p.id === S.me)?.team;
+  const tname = (t) => next.duelTeams?.[t] ?? '';
+  const duel = next.run?.mode === 'duel' || next.mode === 'duel';
   switch (ev.type) {
     case 'round':
       if (ev.captainId === S.me) {
         SOUND.turn();
+        vibrate(80);
         splash('KAPTAN SENSİN', 'Konuşmak yok, sadece kart', 'signal');
+      } else if (duel && ev.team != null) {
+        splash(`${tname(ev.team)} TAKIMI`, ev.team === myTeam ? 'Sizin turunuz' : 'Dinleyin, çalma şansı gelebilir', ev.team === 0 ? 'team0' : 'team1');
       }
       break;
     case 'signal':
@@ -278,7 +305,7 @@ function onEvent(ev, next) {
       if (ev.captainId !== S.me) splash(ev.word, `${ev.n}. sinyal${ev.auto ? ' · süre doldu' : ''}`, 'signal');
       break;
     case 'flip':
-      if (ev.role === 'neutral') {
+      if (ev.role === 'neutral' && !ev.steal) {
         SOUND.blank();
         splash('BOŞ KART', ev.n >= next.round?.maxSignals ? '' : 'Kaptan yeni sinyal oynayacak', 'info');
       }
@@ -287,23 +314,66 @@ function onEvent(ev, next) {
       SOUND.blank();
       if (ev.n < (next.round?.maxSignals ?? 3)) toast(ev.reason === 'timeout' ? 'Süre doldu, karar çıkmadı: yeni sinyal' : 'Pas: yeni sinyal isteniyor');
       break;
-    case 'round_end':
+    case 'steal': {
+      const why = ev.cause === 'parasite' ? 'Parazit!' : 'Sinyal kesildi!';
+      if (ev.team === myTeam) {
+        SOUND.turn();
+        vibrate([60, 40, 60]);
+        splash('ÇALMA ŞANSI!', `${why} Hedefi bulun: +${next.round?.stealPoints ?? 2}`, 'signal');
+      } else {
+        SOUND.bad();
+        shake();
+        vibrate(200);
+        splash(ev.cause === 'parasite' ? 'PARAZİT!' : 'SİNYAL KESİLDİ', `${tname(ev.team)} çalmaya çalışıyor`, 'bad');
+      }
+      break;
+    }
+    case 'round_end': {
+      const st2 = ev.steal;
+      if (st2 && st2.result !== 'pass') {
+        const ours = st2.team === myTeam;
+        if (st2.result === 'hit') {
+          if (ours) {
+            SOUND.hit();
+            confetti();
+            vibrate([30, 50, 30]);
+          } else SOUND.bad();
+          splash(ours ? 'ÇALDINIZ!' : 'ÇALDILAR!', `${tname(st2.team)} +${st2.points}`, ours ? 'good' : 'bad');
+        } else if (st2.result === 'parasite') {
+          SOUND.bad();
+          splash('ÇALMA PATLADI', `${tname(st2.team)} parazite bastı · ${st2.points}`, ours ? 'bad' : 'good');
+        } else toast(`${tname(st2.team)} çalamadı`);
+        break;
+      }
+      if (st2?.result === 'pass') toast(`${tname(st2.team)} çalmadan vazgeçti`);
       if (ev.kind === 'hit') {
         SOUND.hit();
         confetti();
-        splash('İSABET!', `+${ev.points} puan${ev.lifeGain ? ' · +1 can' : ''}`, 'good');
-      } else if (ev.kind === 'parasite') {
+        vibrate([30, 50, 30]);
+        const who = duel && ev.team != null ? `${tname(ev.team)} ` : '';
+        splash(ev.lightning ? 'YILDIRIM!' : 'İSABET!', `${who}+${ev.points} puan${ev.lifeGain ? ' · +1 can' : ''}`, 'good');
+      } else if (ev.kind === 'parasite' && !st2) {
         SOUND.bad();
         shake();
-        splash('PARAZİT!', '−1 can', 'bad');
-      } else if (ev.kind === 'silence') {
+        vibrate(200);
+        splash('PARAZİT!', duel ? `${ev.points} puan` : '−1 can', 'bad');
+      } else if (ev.kind === 'silence' && !st2) {
         SOUND.bad();
         shake();
-        splash('SİNYAL KESİLDİ', '3 sinyalde bulunamadı · −1 can', 'bad');
-      } else toast('Kaptan ayrıldı, tur cezasız yenilendi.');
+        vibrate(200);
+        splash('SİNYAL KESİLDİ', duel ? '3 sinyalde bulunamadı' : '3 sinyalde bulunamadı · −1 can', 'bad');
+      } else if (ev.kind === 'cancelled') toast(ev.reason === 'team_short' ? 'Takımda yeterli oyuncu yok, tur geçildi.' : 'Kaptan ayrıldı, tur cezasız yenilendi.');
       break;
+    }
     case 'run_end':
-      if (ev.newRecord) {
+      if (ev.mode === 'duel') {
+        if (ev.winner == null) splash('BERABERE', 'Rövanş?', 'info');
+        else if (ev.winner === myTeam) {
+          confetti(160);
+          SOUND.hit();
+          splash('KAZANDINIZ!', `${tname(ev.winner)} takımı`, 'good');
+        } else splash('KAYBETTİNİZ', `${tname(ev.winner)} kazandı`, 'bad');
+      } else if (ev.newRecord) {
         confetti(140);
         SOUND.hit();
       }
@@ -433,13 +503,24 @@ function avatar(p, extra = '') {
   return `<span class="avatar pc${p.color}${p.connected ? '' : ' off'} ${extra}">${esc([...p.name][0] ?? '?')}</span>`;
 }
 
-function rulesHtml() {
-  return `<ol class="rules">
-    <li><span>Masada 8 kelime kartı var. <b>Kaptan</b> hangisinin <b>hedef</b>, hangilerinin <b>parazit</b> olduğunu bilir ama konuşamaz.</span></li>
-    <li><span>Kaptan elindeki 6 kelime kartından birini <b>sinyal</b> olarak oynar. Turda bir kez elini değiştirebilir.</span></li>
-    <li><span>Takım konuşur ve <b>jetonlarını</b> kartlara koyar. Herkes aynı kartta birleşince 3 saniyede kart açılır. <b>Pas</b> yeni sinyal ister.</span></li>
-    <li><span>Hedef 1. sinyalde <b>3</b>, 2.de <b>2</b>, 3.de <b>1</b> puan. Boş kartta kaptan yeni sinyal oynar. <b>Parazit</b> ya da 3 sinyalde bulamamak <b>1 can</b> götürür.</span></li>
-    <li><span>3 canla başlanır, her 5 isabette 1 can geri gelir. Turlar ilerledikçe parazitler artar ve hedefe benzer.</span></li>
+function rulesHtml(mode = 'coop', R = {}) {
+  const r = { boardSize: 12, handSize: 8, points: [3, 2, 1], lives: 3, lifeEveryHits: 5, lightningSeconds: 15, lightningBonus: 1, duelRoundsPerTeam: 4, stealSeconds: 20, stealPoints: 2, duelParasitePenalty: 1, ...R };
+  const bolt = r.lightningSeconds > 0 ? ` Sinyalden sonraki <b>${r.lightningSeconds} saniyede</b> bulursanız <b>yıldırım +${r.lightningBonus}</b>.` : '';
+  const common = `
+    <li><span>Masada ${r.boardSize} kelime kartı var. <b>Kaptan</b> hangisinin <b>hedef</b>, hangilerinin <b>parazit</b> olduğunu bilir ama konuşamaz.</span></li>
+    <li><span>Kaptan elindeki ${r.handSize} kelime kartından birini <b>sinyal</b> olarak oynar. Turda bir kez elini değiştirebilir.</span></li>
+    <li><span>Tahminciler konuşur ve <b>jetonlarını</b> kartlara koyar. Herkes aynı kartta birleşince 3 saniyede kart açılır. <b>Pas</b> yeni sinyal ister.</span></li>`;
+  const personal = `<li><span><b>Bireysel puan:</b> kaptan takımına kazandırdığını alır, hedefe jetonunu ilk koyan +1, açılan parazite ilk koyan −1.</span></li>`;
+  if (mode === 'duel')
+    return `<ol class="rules">${common}
+      <li><span><b>Mavi</b> ve <b>Turuncu</b> takımlar sırayla oynar, her takım ${r.duelRoundsPerTeam} tur. Hedef 1. sinyalde <b>${r.points[0]}</b>, 2.de <b>${r.points[1]}</b>, 3.de <b>${r.points[2]}</b> puan.${bolt} Parazit <b>−${r.duelParasitePenalty}</b>.</span></li>
+      <li><span>Takım parazite basar ya da 3 sinyalde bulamazsa rakibe <b>${r.stealSeconds} saniyelik çalma</b> hakkı geçer: hedefi bulan <b>+${r.stealPoints}</b>.</span></li>
+      ${personal}
+    </ol>`;
+  return `<ol class="rules">${common}
+    <li><span>Hedef 1. sinyalde <b>${r.points[0]}</b>, 2.de <b>${r.points[1]}</b>, 3.de <b>${r.points[2]}</b> puan.${bolt} <b>Parazit</b> ya da 3 sinyalde bulamamak <b>1 can</b> götürür.</span></li>
+    <li><span>${r.lives} canla başlanır, her ${r.lifeEveryHits} isabette 1 can geri gelir. Turlar ilerledikçe parazitler artar ve hedefe benzer.</span></li>
+    ${personal}
   </ol>`;
 }
 
@@ -518,9 +599,10 @@ const SKELETON = {
       <section class="panel how" aria-labelledby="how-t">
         <h2 class="panel-title" id="how-t">Nasıl oynanır</h2>
         <ol>
-          <li><span class="mini tile-target">BULUT</span><div><b>Kaptan hedefi bilir</b><span>Masada 8 kelime var. Hedefi ve parazitleri yalnızca kaptan görür.</span></div></li>
+          <li><span class="mini tile-target">BULUT</span><div><b>Kaptan hedefi bilir</b><span>Masada 12 kelime var. Hedefi ve parazitleri yalnızca kaptan görür.</span></div></li>
           <li><span class="mini sigcard">PAMUK</span><div><b>Konuşmadan sinyal oynar</b><span>Elindeki kelime kartlarından birini seçer. Konuşmak yasak.</span></div></li>
           <li><span class="mini tile-tokens">BULUT<span class="dots"><i class="pc0"></i><i class="pc1"></i><i class="pc3"></i></span></span><div><b>Takım jetonla karar verir</b><span>Herkesin jetonu aynı kartta birleşince kart açılır. Parazit can götürür.</span></div></li>
+          <li><span class="mini duelmini"><i class="tm0"></i><b>VS</b><i class="tm1"></i></span><div><b>Ya da düello</b><span>İki takım kapışır. Hata yapan takımın kartını rakip çalar.</span></div></li>
         </ol>
       </section>
     </main>`,
@@ -532,19 +614,21 @@ const SKELETON = {
         <div class="room-code"><span class="code" id="l-code"></span><button class="btn small" data-action="copy-link">${icon('link', { size: 16 })} Davet linki</button></div>
         <p class="muted" style="margin:12px 0 0;font-size:14px">Linki ekibe gönder. Konuşmak için Discord gibi bir sesli kanal açın.</p>
       </section>
+      <section class="panel" id="l-mode"></section>
       <section class="panel" id="l-team"></section>
       <section class="panel">
         <h2 class="panel-title"><span id="l-count"></span><span id="l-tools"></span></h2>
         <ul class="plist" id="l-players"></ul>
       </section>
-      <section class="panel"><h2 class="panel-title">Nasıl oynanır</h2>${rulesHtml()}</section>
+      <section class="panel" id="l-board" hidden></section>
+      <section class="panel"><h2 class="panel-title">Nasıl oynanır</h2><div id="l-rules"></div></section>
       <div class="start-bar" id="l-start"></div>
     </main>`,
   game: () => `
     <main class="game">
       <header class="hud" id="g-hud"></header>
       <div class="game-main">
-        <section class="status" id="g-status"><span class="phase-ic" id="g-ic"></span><div class="say" id="g-say" aria-live="polite"></div><span class="timer" id="g-timer"><svg viewBox="0 0 44 44" aria-hidden="true"><circle class="track" cx="22" cy="22" r="19"/><circle class="arc" id="g-arc" cx="22" cy="22" r="19"/></svg><span class="secs" id="g-secs"></span></span><div id="g-wait" class="wait-slot"></div></section>
+        <section class="status" id="g-status"><span class="phase-ic" id="g-ic"></span><div class="say" id="g-say" aria-live="polite"></div><span class="timer" id="g-timer"><svg viewBox="0 0 44 44" aria-hidden="true"><circle class="track" cx="22" cy="22" r="19"/><circle class="arc" id="g-arc" cx="22" cy="22" r="19"/></svg><span class="secs" id="g-secs"></span></span><span class="bolt" id="g-bolt" hidden></span><div id="g-wait" class="wait-slot"></div></section>
         <section class="table" aria-label="Masa">
           <div class="signals" id="g-signals" aria-label="Sinyaller"></div>
           <div class="board" id="g-board" aria-label="Kartlar"></div>
@@ -601,8 +685,19 @@ function homeName() {
 function renderLobby() {
   const s = st();
   const host = isHost();
+  const duel = s.mode === 'duel';
   put('l-code', esc(s.code));
-  if (document.activeElement?.id !== 'team-input') {
+  put(
+    'l-mode',
+    `<h2 class="panel-title">Oyun modu</h2>
+     <div class="seg" role="radiogroup" aria-label="Oyun modu">
+       <button class="seg-opt${duel ? '' : ' on'}" data-action="mode" data-mode="coop" role="radio" aria-checked="${!duel}" ${host ? '' : 'disabled'}>${icon('users', { size: 18 })}<span><b>Ortak oyun</b><small>Hep birlikte canlar bitene kadar; takım rekoru</small></span></button>
+       <button class="seg-opt${duel ? ' on' : ''}" data-action="mode" data-mode="duel" role="radio" aria-checked="${duel}" ${host ? '' : 'disabled'}>${icon('zap', { size: 18 })}<span><b>Düello</b><small>İki takım kapışır, hata yapanın kartı çalınır (4+ kişi)</small></span></button>
+     </div>`,
+  );
+  const teamPanel = document.getElementById('l-team');
+  if (teamPanel) teamPanel.hidden = duel;
+  if (!duel && document.activeElement?.id !== 'team-input') {
     const rec = s.record ? `Takım rekoru: <b>${s.record.bestScore}</b> puan · ${s.record.runs} oyun` : 'Bu takım adıyla ilk oyun.';
     put(
       'l-team',
@@ -615,31 +710,67 @@ function renderLobby() {
        <p class="muted" style="margin:10px 0 0;font-size:14px">${rec}</p>`,
     );
   }
-  put('l-count', `Oyuncular · kaptan sırası (${s.players.length}/${s.maxPlayers})`);
-  put('l-tools', host && s.players.length > 1 ? `<button class="btn ghost small" data-action="shuffle">${icon('shuffle', { size: 15 })} Karıştır</button>` : '');
-  put(
-    'l-players',
-    s.players
-      .map((p, i) => {
-        const ctrl = host
-          ? `<span class="ctrl">
-              <button class="icon-btn" data-action="move" data-id="${p.id}" data-dir="up" ${i === 0 ? 'disabled' : ''} aria-label="${esc(p.name)} yukarı">${icon('up', { size: 16 })}</button>
-              <button class="icon-btn" data-action="move" data-id="${p.id}" data-dir="down" ${i === s.players.length - 1 ? 'disabled' : ''} aria-label="${esc(p.name)} aşağı">${icon('down', { size: 16 })}</button>
-              ${p.id !== S.me ? `<button class="icon-btn" data-action="kick" data-id="${p.id}" aria-label="${esc(p.name)} odadan çıkar">${icon('x', { size: 16 })}</button>` : ''}
-            </span>`
-          : '';
-        return `<li><span class="n">${i + 1}</span>${avatar(p)}<span class="who"><b>${esc(p.name)}</b>${p.id === S.me ? '<span class="badge">sen</span>' : ''}${p.id === s.hostId ? `<span class="badge host">${icon('crown', { size: 12 })} oda sahibi</span>` : ''}${p.connected ? '' : '<span class="badge">bağlantı yok</span>'}</span>${ctrl}</li>`;
-      })
-      .join(''),
-  );
-  const connected = s.players.filter((p) => p.connected).length;
-  const enough = connected >= s.minPlayers;
+  put('l-count', duel ? `Takımlar (${s.players.length}/${s.maxPlayers})` : `Oyuncular · kaptan sırası (${s.players.length}/${s.maxPlayers})`);
+  put('l-tools', host && s.players.length > 1 ? `<button class="btn ghost small" data-action="shuffle">${icon('shuffle', { size: 15 })} ${duel ? 'Takımları karıştır' : 'Karıştır'}</button>` : '');
+  const row = (p, i, list) => {
+    const badges = `${p.id === S.me ? '<span class="badge">sen</span>' : ''}${p.id === s.hostId ? `<span class="badge host">${icon('crown', { size: 12 })} oda sahibi</span>` : ''}${p.connected ? '' : '<span class="badge">bağlantı yok</span>'}`;
+    let ctrl = '';
+    if (host && duel) {
+      ctrl = `<span class="ctrl"><button class="icon-btn" data-action="swap-team" data-id="${p.id}" data-team="${1 - p.team}" aria-label="${esc(p.name)} ${esc(teamName(1 - p.team))} takımına geçsin">${icon('shuffle', { size: 16 })}</button>${
+        p.id !== S.me ? `<button class="icon-btn" data-action="kick" data-id="${p.id}" aria-label="${esc(p.name)} odadan çıkar">${icon('x', { size: 16 })}</button>` : ''
+      }</span>`;
+    } else if (host) {
+      ctrl = `<span class="ctrl">
+          <button class="icon-btn" data-action="move" data-id="${p.id}" data-dir="up" ${i === 0 ? 'disabled' : ''} aria-label="${esc(p.name)} yukarı">${icon('up', { size: 16 })}</button>
+          <button class="icon-btn" data-action="move" data-id="${p.id}" data-dir="down" ${i === list.length - 1 ? 'disabled' : ''} aria-label="${esc(p.name)} aşağı">${icon('down', { size: 16 })}</button>
+          ${p.id !== S.me ? `<button class="icon-btn" data-action="kick" data-id="${p.id}" aria-label="${esc(p.name)} odadan çıkar">${icon('x', { size: 16 })}</button>` : ''}
+        </span>`;
+    }
+    return `<li>${duel ? '' : `<span class="n">${i + 1}</span>`}${avatar(p)}<span class="who"><b>${esc(p.name)}</b>${badges}</span>${ctrl}</li>`;
+  };
+  if (duel) {
+    put(
+      'l-players',
+      [0, 1]
+        .map((t) => {
+          const list = s.players.filter((p) => p.team === t);
+          return `<li class="team-col tm${t}"><div class="team-head"><span class="tdot"></span>${esc(teamName(t))}<small>${list.length} kişi</small></div><ul class="plist">${list.map((p, i) => row(p, i, list)).join('') || '<li class="muted">Henüz kimse yok</li>'}</ul></li>`;
+        })
+        .join(''),
+    );
+    setClass('l-players', 'plist teams');
+  } else {
+    put('l-players', s.players.map((p, i) => row(p, i, s.players)).join(''));
+    setClass('l-players', 'plist');
+  }
+  const connected = s.players.filter((p) => p.connected);
+  let ok;
+  let hint;
+  if (duel) {
+    const counts = [0, 1].map((t) => connected.filter((p) => p.team === t).length);
+    ok = connected.length >= s.duelMinPlayers && counts.every((n) => n >= 2);
+    hint = ok ? `Her takım ${s.rules.duelRoundsPerTeam} tur oynar. ${esc(teamName(0))} başlar.` : `Düello için en az ${s.duelMinPlayers} oyuncu ve her takımda en az 2 kişi gerekli.`;
+  } else {
+    ok = connected.length >= s.minPlayers;
+    hint = ok ? 'İlk kaptan listedeki ilk oyuncu.' : 'En az 2 oyuncu gerekli. Davet linkini gönder.';
+  }
   put(
     'l-start',
     host
-      ? `<button class="btn primary" data-action="start" ${enough ? '' : 'disabled'}>Oyunu başlat</button><small>${enough ? 'İlk kaptan listedeki ilk oyuncu.' : 'En az 2 oyuncu gerekli. Davet linkini gönder.'}</small>`
+      ? `<button class="btn primary" data-action="start" ${ok ? '' : 'disabled'}>${duel ? 'Düelloyu başlat' : 'Oyunu başlat'}</button><small>${hint}</small>`
       : `<small>${esc(pname(s.hostId))} oyunu başlatacak.</small>`,
   );
+  put('l-rules', rulesHtml(s.mode, s.rules));
+  const lb = document.getElementById('l-board');
+  if (lb) lb.hidden = !s.leaderboard?.length;
+  put('l-board', s.leaderboard?.length ? `<h2 class="panel-title">${icon('trophy', { size: 15 })} Rekor tablosu · ortak oyun</h2>${leaderboardHtml(s.leaderboard, s.teamName)}` : '');
+}
+
+function leaderboardHtml(list, current) {
+  const key = (n) => String(n).toLocaleUpperCase('tr-TR').trim();
+  return `<ol class="lboard">${list
+    .map((t, i) => `<li class="${key(t.name) === key(current) ? 'me' : ''}"><span class="rk">${i + 1}</span><b>${esc(t.name)}</b><span class="muted">${t.runs} oyun</span><span class="sc">${t.bestScore}</span></li>`)
+    .join('')}</ol>`;
 }
 
 // ── oyun ──
@@ -648,8 +779,16 @@ function hudHtml() {
   const s = st();
   const run = s.run;
   const r = round();
-  const hearts = Array.from({ length: run.maxLives }, (_, i) => icon('heart', { size: 18, fill: true, cls: i < run.lives ? '' : 'lost' })).join('');
   const lvl = r ? `<em class="lvl l${r.level.index}">${esc(r.level.name)}</em>` : '';
+  if (run.mode === 'duel') {
+    const active = r?.team;
+    const pill = (t) => `<span class="ts tm${t}${active === t ? ' on' : ''}" aria-label="${esc(teamName(t))} ${run.teamScores[t]} puan"><i class="tdot"></i>${esc(teamName(t))}<b>${run.teamScores[t]}</b></span>`;
+    const lvlInline = r ? `<em class="lvl inline l${r.level.index}">${esc(r.level.name)}</em>` : '';
+    return `<div class="where"><b>TUR ${r?.no ?? run.roundNo}/${run.totalRounds}</b><span>${lvlInline}${r ? `${r.level.parasites} parazit` : ''}</span></div>
+      <div class="duel-score">${pill(0)}${pill(1)}</div>
+      <button class="icon-btn" data-action="menu" aria-label="Menü">${icon('menu', { size: 20 })}</button>`;
+  }
+  const hearts = Array.from({ length: run.maxLives }, (_, i) => icon('heart', { size: 18, fill: true, cls: i < run.lives ? '' : 'lost' })).join('');
   return `<div class="where"><b>TUR ${r?.no ?? run.roundNo} ${lvl}</b><span>${r ? `${r.level.parasites} parazit · ` : ''}${esc(s.teamName)}</span></div>
     <div class="lives" title="Can: ${run.lives}/${run.maxLives}" aria-label="Can ${run.lives}">${hearts}</div>
     <div class="score" aria-label="Puan ${run.score}"><b>${run.score}</b><span>puan</span></div>
@@ -659,32 +798,63 @@ function hudHtml() {
 function nextCaptainName() {
   const s = st();
   const r = round();
+  const duel = s.run.mode === 'duel';
   const list = s.players;
+  if (duel) return `sıra ${teamName(1 - r.team)} takımında`;
   const i = list.findIndex((p) => p.id === r.captainId);
   for (let k = 1; k <= list.length; k++) {
     const p = list[(Math.max(i, 0) + k) % list.length];
-    if (p.connected) return p.id === S.me ? 'sen' : p.name;
+    if (p.connected) return `sıradaki kaptan: ${p.id === S.me ? 'sen' : p.name}`;
   }
   return '';
+}
+
+function stealLine(steal) {
+  if (!steal) return '';
+  const tn = teamName(steal.team);
+  return {
+    hit: `${tn} çaldı: +${steal.points}.`,
+    parasite: `${tn} çalarken parazite bastı: ${steal.points}.`,
+    miss: `${tn} çalamadı (boş kart).`,
+    pass: `${tn} çalmadan vazgeçti.`,
+  }[steal.result];
 }
 
 function statusInfo() {
   const s = st();
   const r = round();
+  const duel = s.run.mode === 'duel';
   const cap = isCaptain();
   const capName = pname(r.captainId);
   const n = r.signals.length;
+  const myP = me();
+  const myTeam = myP?.team;
+  const activeName = duel ? teamName(r.team) : '';
+  const watching = duel && myTeam !== r.team;
   if (s.phase === 'REVEAL') {
     const res = r.result ?? { kind: 'cancelled' };
     const target = r.board.find((c) => c.role === 'target')?.word ?? '';
-    const next = s.run.lives <= 0 ? 'Canlar bitti, sonuçlar geliyor…' : `Sıradaki kaptan: ${nextCaptainName()}`;
+    const over = duel ? s.run.roundNo >= s.run.totalRounds : s.run.lives <= 0;
+    const next = over ? 'Oyun bitti, sonuçlar geliyor…' : `${nextCaptainName().replace(/^./, (c) => c.toLocaleUpperCase('tr-TR'))}.`;
+    const sl = stealLine(res.steal);
+    const who = duel ? `${activeName} · ` : '';
     const map = {
-      hit: { big: 'İSABET', badge: `+${res.points} puan${res.lifeGain ? ' · +1 can' : ''}`, sub: `${target} ${n}. sinyalde bulundu. ${next}` },
-      parasite: { big: 'PARAZİT', badge: '−1 can', sub: `${r.board[res.index]?.word ?? ''} parazitti, hedef ${target} idi. ${next}` },
-      silence: { big: 'SİNYAL KESİLDİ', badge: '−1 can', sub: `Hedef ${target} idi. ${next}` },
-      cancelled: { big: 'TUR YENİLENDİ', badge: 'ceza yok', sub: `Kaptan ayrıldı. ${next}` },
+      hit: { big: `${duel ? `${activeName} ` : ''}İSABET`, badge: `+${res.points} puan${res.lightning ? ' · yıldırım' : ''}${res.lifeGain ? ' · +1 can' : ''}`, sub: `${who}${target} ${n}. sinyalde bulundu. ${next}` },
+      parasite: { big: 'PARAZİT', badge: duel ? `${res.points} puan` : '−1 can', sub: `${who}${r.board[res.index]?.word ?? ''} parazitti, hedef ${target} idi. ${sl} ${next}` },
+      silence: { big: 'SİNYAL KESİLDİ', badge: duel ? '0 puan' : '−1 can', sub: `${who}Hedef ${target} idi. ${sl} ${next}` },
+      cancelled: { big: 'TUR GEÇİLDİ', badge: 'ceza yok', sub: `${res.reason === 'team_short' ? 'Takımda yeterli oyuncu yok.' : 'Kaptan ayrıldı.'} ${next}` },
     };
-    return { cls: `res-${res.kind}`, ...map[res.kind] };
+    const cls = res.steal?.result === 'hit' ? 'res-steal' : `res-${res.kind}`;
+    return { cls, ...map[res.kind] };
+  }
+  if (s.phase === 'STEAL') {
+    const mine = r.steal && myTeam === r.steal.team;
+    const why = r.steal?.cause === 'parasite' ? `${activeName} parazite bastı` : `${activeName} hedefi bulamadı`;
+    if (mine) {
+      if (r.lock) return { cls: 'me steal', title: 'Kilitleniyor…', sub: 'Vazgeçen jetonunu taşısın.' };
+      return { cls: 'me steal', title: 'ÇALMA ŞANSI!', sub: `${why}. Hedefi bulun: +${s.rules.stealPoints} puan. Parazit −${s.rules.duelParasitePenalty}.` };
+    }
+    return { cls: 'steal', title: `${teamName(r.steal?.team)} çalmaya çalışıyor`, sub: `${why}. Hedefi bulurlarsa +${s.rules.stealPoints} alırlar.` };
   }
   if (s.phase === 'SIGNAL') {
     if (cap)
@@ -693,6 +863,7 @@ function statusInfo() {
         title: n ? `${n + 1}. sinyal kartını seç` : 'Sinyal kartını seç',
         sub: 'Yeşil hedef, kırmızı parazit. Konuşmak yok!',
       };
+    if (watching) return { cls: 'captain-turn', title: `${activeName} takımın turu`, sub: `${capName} sinyal seçiyor. Dinleyin: hata yaparlarsa çalma hakkı sizin.` };
     return {
       cls: 'captain-turn',
       title: `${capName} ${n ? `${n + 1}. sinyali` : 'sinyal'} seçiyor`,
@@ -701,10 +872,11 @@ function statusInfo() {
   }
   // GUESS
   if (cap) return { cls: '', title: 'Sus ve izle!', sub: 'Takım jetonlarını kartlara koyuyor. Herkes aynı kartta birleşince kart açılır.' };
+  if (watching) return { cls: '', title: `${activeName} karar veriyor`, sub: 'Parazite basarlarsa ya da bulamazlarsa çalma sırası sizde.' };
   const mine = myToken();
   if (r.lock) return { cls: 'me', title: 'Kilitleniyor…', sub: 'Vazgeçen jetonunu başka yere taşısın.' };
   if (mine === undefined) return { cls: 'me', title: 'Jetonunu bir karta koy', sub: 'Herkes aynı kartta birleşince 3 saniyede açılır. Emin değilseniz Pas.' };
-  const gs = s.players.filter((p) => p.connected && p.id !== r.captainId);
+  const gs = s.players.filter((p) => p.connected && p.id !== r.captainId && (r.team == null || p.team === r.team));
   const same = gs.filter((p) => r.tokens[p.id] === mine).length;
   return { cls: '', title: 'Takımın kalanını bekle', sub: `${same}/${gs.length} jeton seninle aynı yerde. Konuşun, ikna edin.` };
 }
@@ -713,7 +885,21 @@ function renderStatus() {
   const s = st();
   const info = statusInfo();
   setClass('g-status', `status ${info.cls}`);
-  const ic = s.phase === 'REVEAL' ? { hit: 'check', parasite: 'zap', silence: 'minus', cancelled: 'refresh' }[round().result?.kind] ?? 'refresh' : s.phase === 'SIGNAL' ? 'signal' : isCaptain() ? 'micOff' : 'hand';
+  const r = round();
+  const ic =
+    s.phase === 'REVEAL'
+      ? r.result?.steal?.result === 'hit'
+        ? 'hand'
+        : ({ hit: 'check', parasite: 'zap', silence: 'minus', cancelled: 'refresh' }[r.result?.kind] ?? 'refresh')
+      : s.phase === 'STEAL'
+        ? 'hand'
+        : s.phase === 'SIGNAL'
+          ? 'signal'
+          : isCaptain()
+            ? 'micOff'
+            : canPickNow()
+              ? 'hand'
+              : 'clock';
   put('g-ic', icon(ic, { size: 22 }));
   put(
     'g-say',
@@ -744,14 +930,22 @@ function renderSignals() {
   put('g-signals', out.join(''));
 }
 
+function tokenChips(target) {
+  const r = round();
+  return st()
+    .players.filter((p) => r.tokens[p.id] === target)
+    .map((p) => `<span class="tok pc${p.color}" title="${esc(p.name)}">${esc([...p.name][0])}</span>`)
+    .join('');
+}
+
 function tileHtml(card, i) {
   const s = st();
   const r = round();
   const cap = capInfo();
   const reveal = s.phase === 'REVEAL';
-  const canPick = s.phase === 'GUESS' && !isCaptain() && !card.revealed && !s.waiting;
+  const canPick = canPickNow() && !card.revealed;
   const mine = myToken() === i;
-  const meP = player(S.me);
+  const meP = me();
   const cls = ['tile'];
   let tag = '';
   if (card.revealed) {
@@ -781,38 +975,39 @@ function tileHtml(card, i) {
     }
   }
   if (mine && meP) cls.push('mine', `pc${meP.color}`);
-  const locking = r.lock && r.lock.target === i && s.phase === 'GUESS';
+  const locking = r.lock && r.lock.target === i && (s.phase === 'GUESS' || s.phase === 'STEAL');
   if (locking) cls.push('locking');
-  const toks = s.players
-    .filter((p) => r.tokens[p.id] === i)
-    .map((p) => `<span class="tok pc${p.color}" title="${esc(p.name)}">${esc([...p.name][0])}</span>`)
-    .join('');
+  const toks = tokenChips(i);
   const len = [...card.word].length;
   const wcls = len >= 10 ? ' l10' : len >= 8 ? ' l8' : '';
-  const role = cap && !card.revealed ? { target: ', hedef', parasite: ', parazit' }[cap.roles[i]] ?? '' : '';
+  const role = cap && !card.revealed ? ({ target: ', hedef', parasite: ', parazit' }[cap.roles[i]] ?? '') : '';
   return `<button class="${cls.join(' ')}" data-action="tile" data-i="${i}" ${canPick ? '' : 'disabled'} aria-pressed="${mine}" aria-label="${esc(card.word)}${role}${card.revealed ? `, açık: ${tag.replace(/<[^>]+>/g, '').trim()}` : ''}">
     ${tag ? `<span class="tag">${tag}</span>` : ''}${card.revealed ? '' : icon('signal', { size: 13, cls: 'pip' })}<span class="word${wcls}">${esc(card.word)}</span>${toks ? `<span class="toks">${toks}</span>` : ''}${locking ? '<span class="lockn" data-lock></span>' : ''}
   </button>`;
 }
 
 function renderBoard() {
-  put('g-board', round().board.map(tileHtml).join(''));
+  const r = round();
+  setClass('g-board', `board n${r.board.length}${st().phase === 'STEAL' ? ' stealing' : ''}`);
+  put('g-board', r.board.map(tileHtml).join(''));
 }
 
 function renderDock() {
   const s = st();
   const r = round();
+  const duel = s.run.mode === 'duel';
   const cap = isCaptain();
   if (s.phase === 'REVEAL') {
+    const over = duel ? s.run.roundNo >= s.run.totalRounds : s.run.lives <= 0;
     put(
       'g-dock',
       isHost()
-        ? `<div class="reveal-actions"><button class="btn primary block" data-action="next" ${s.waiting ? 'disabled' : ''}>${s.run.lives <= 0 ? 'Sonuçları gör' : 'Sonraki tur'} ${icon('next', { size: 18 })}</button></div>`
-        : `<p class="dock-note">${s.run.lives <= 0 ? 'Sonuçlar birazdan…' : 'Sıradaki tur birazdan başlıyor…'}</p>`,
+        ? `<div class="reveal-actions"><button class="btn primary block" data-action="next" ${s.waiting ? 'disabled' : ''}>${over ? 'Sonuçları gör' : 'Sonraki tur'} ${icon('next', { size: 18 })}</button></div>`
+        : `<p class="dock-note">${over ? 'Sonuçlar birazdan…' : 'Sıradaki tur birazdan başlıyor…'}</p>`,
     );
     return;
   }
-  if (cap) {
+  if (cap && s.phase !== 'STEAL') {
     const info = capInfo();
     const hand = info?.hand ?? [];
     const signalPhase = s.phase === 'SIGNAL' && !s.waiting;
@@ -820,7 +1015,7 @@ function renderDock() {
     const cards = hand
       .map(
         (w) =>
-          `<button class="hcard${S.sel === w ? ' sel' : ''}" data-action="card" data-w="${esc(w)}" ${signalPhase ? '' : 'disabled'} aria-pressed="${S.sel === w}">${icon('signal', { size: 40, cls: 'wm' })}<span class="${[...w].length >= 10 ? 'l10' : [...w].length >= 9 ? 'l9' : ''}">${esc(w)}</span></button>`,
+          `<button class="hcard${S.sel === w ? ' sel' : ''}" data-action="card" data-w="${esc(w)}" ${signalPhase ? '' : 'disabled'} aria-pressed="${S.sel === w}">${icon('signal', { size: 40, cls: 'wm' })}<span class="${[...w].length >= 10 ? 'l10' : [...w].length >= 9 ? 'l9' : [...w].length >= 8 ? 'l8' : ''}">${esc(w)}</span></button>`,
       )
       .join('');
     const actions = signalPhase
@@ -836,21 +1031,27 @@ function renderDock() {
   if (s.phase === 'SIGNAL') {
     put(
       'g-dock',
-      `<div class="backs" aria-hidden="true">${'<i></i>'.repeat(Math.min(6, r.handCount))}</div><p class="dock-note">${esc(pname(r.captainId))} elindeki ${r.handCount} karttan birini seçiyor.</p>`,
+      `<div class="backs" aria-hidden="true">${'<i></i>'.repeat(Math.min(8, r.handCount))}</div><p class="dock-note">${esc(pname(r.captainId))} elindeki ${r.handCount} karttan birini seçiyor.</p>`,
     );
     return;
   }
+  if (!canPickNow()) {
+    const note =
+      s.phase === 'STEAL'
+        ? `${esc(teamName(r.steal?.team))} çalmaya çalışıyor. Konuşabilirsiniz ama jeton koyamazsınız.`
+        : `${esc(teamName(r.team))} karar veriyor. Çalma şansı gelirse jetonlarınız burada açılır.`;
+    put('g-dock', `<p class="dock-note watch">${icon('clock', { size: 15 })} ${note}</p>`);
+    return;
+  }
   const mine = myToken() === PASS;
-  const toks = s.players
-    .filter((p) => r.tokens[p.id] === PASS)
-    .map((p) => `<span class="tok pc${p.color}" title="${esc(p.name)}">${esc([...p.name][0])}</span>`)
-    .join('');
+  const toks = tokenChips(PASS);
   const locking = r.lock?.target === PASS;
   const left = r.maxSignals - r.signals.length;
+  const label = s.phase === 'STEAL' ? 'Vazgeç · çalma yok' : left > 0 ? 'Pas · yeni sinyal iste' : duel ? 'Pas · sinyal kesilir, rakip çalar' : 'Pas · sinyal kesilir (−1 can)';
   put(
     'g-dock',
-    `<button class="pass${mine ? ` mine pc${player(S.me)?.color}` : ''}${locking ? ' locking' : ''}" data-action="pass" ${s.waiting ? 'disabled' : ''} aria-pressed="${mine}">
-      ${icon('hand', { size: 18 })} ${left > 0 ? 'Pas · yeni sinyal iste' : 'Pas · sinyal kesilir (−1 can)'} ${toks ? `<span class="toks">${toks}</span>` : ''}${locking ? '<span class="lockn" data-lock></span>' : ''}
+    `<button class="pass${mine ? ` mine pc${me()?.color}` : ''}${locking ? ' locking' : ''}" data-action="pass" ${s.waiting ? 'disabled' : ''} aria-pressed="${mine}">
+      ${icon('hand', { size: 18 })} ${label} ${toks ? `<span class="toks">${toks}</span>` : ''}${locking ? '<span class="lockn" data-lock></span>' : ''}
     </button>`,
   );
 }
@@ -858,23 +1059,29 @@ function renderDock() {
 function playerChips(vertical = false) {
   const s = st();
   const r = round();
-  return s.players
+  const duel = s.run?.mode === 'duel';
+  const pickPhase = s.phase === 'GUESS' || s.phase === 'STEAL';
+  const list = vertical ? [...s.players].sort((a, b) => (duel ? a.team - b.team : 0) || b.points - a.points) : s.players;
+  return list
     .map((p) => {
-      const cap = r && p.id === r.captainId;
-      const decided = r && s.phase === 'GUESS' && !cap && r.tokens[p.id] !== undefined;
-      return `<span class="pchip${cap ? ' cap' : ''}${p.connected ? '' : ' off'}">${avatar(p)}<span class="nm">${esc(p.name)}${p.id === S.me ? ' (sen)' : ''}</span>${cap ? icon('micOff', { size: 14 }) : ''}${decided ? icon('check', { size: 14 }) : ''}${vertical && p.id === s.hostId ? icon('crown', { size: 13 }) : ''}</span>`;
+      const cap = r && p.id === r.captainId && s.phase !== 'STEAL';
+      const decided = r && pickPhase && r.tokens[p.id] !== undefined;
+      const pts = `<em class="pp${p.points < 0 ? ' neg' : ''}" title="Bireysel puan">${p.points > 0 ? '+' : ''}${p.points}</em>`;
+      return `<span class="pchip${cap ? ' cap' : ''}${p.connected ? '' : ' off'}${duel ? ` tm${p.team}` : ''}">${avatar(p)}<span class="nm">${esc(p.name)}${p.id === S.me ? ' (sen)' : ''}</span>${cap ? icon('micOff', { size: 14 }) : ''}${decided ? icon('check', { size: 14 }) : ''}${vertical && p.id === s.hostId ? icon('crown', { size: 13 }) : ''}${pts}</span>`;
     })
     .join('');
 }
 
-function historyHtml(list) {
+function historyHtml(list, mode = 'coop') {
   if (!list.length) return '<li class="empty">Henüz tur bitmedi.</li>';
   const iconFor = { hit: 'check', parasite: 'zap', silence: 'minus', cancelled: 'refresh' };
+  const duel = mode === 'duel';
   return [...list]
     .reverse()
     .map((h) => {
       // Sinyaller → açılan son kart (isabette hedef, parazitte parazit); bulunamadıysa hedef kesik çizgiyle.
-      const last = h.picks.at(-1);
+      const own = h.picks.filter((pk) => !pk.steal);
+      const last = own.at(-1);
       const end =
         h.kind === 'hit'
           ? `<span class="t">${esc(h.target)}</span>`
@@ -882,9 +1089,13 @@ function historyHtml(list) {
             ? `<span class="t bad">${esc(last?.word ?? '')}</span>`
             : `<span class="t miss">${esc(h.target)}</span>`;
       const chain = `<span class="chain">${[...h.signals.map((w) => `<span class="s">${esc(w)}</span>`), end].join('<span class="arrow">→</span>')}</span>`;
-      const note = h.kind === 'parasite' ? ` · hedef ${esc(h.target)}` : h.kind === 'silence' ? ' · bulunamadı' : h.kind === 'cancelled' ? ' · iptal' : '';
-      const pts = h.kind === 'hit' ? `+${h.points}` : h.kind === 'cancelled' ? '' : '−1 can';
-      return `<li><span class="ri ${h.kind}">${icon(iconFor[h.kind], { size: 15 })}</span><span class="path">${chain}<small>${h.no}. tur · kaptan ${esc(h.captainName)}${note}</small></span><span class="pts">${pts}</span></li>`;
+      const note = h.kind === 'parasite' ? ` · hedef ${esc(h.target)}` : h.kind === 'silence' ? ' · bulunamadı' : h.kind === 'cancelled' ? ' · geçildi' : h.lightning ? ' · yıldırım' : '';
+      const teamTag = duel && h.team != null ? `<span class="tt tm${h.team}"><i class="tdot"></i>${esc(teamName(h.team))}</span> ` : '';
+      const steal = h.steal && h.steal.result !== 'pass' ? `<small class="stl tm${h.steal.team}">${esc(stealLine(h.steal))}</small>` : '';
+      let pts = '';
+      if (h.kind === 'hit') pts = `+${h.points}`;
+      else if (h.kind !== 'cancelled') pts = duel ? (h.kind === 'parasite' ? String(h.points) : '0') : '−1 can';
+      return `<li><span class="ri ${h.kind}">${icon(iconFor[h.kind], { size: 15 })}</span><span class="path">${chain}<small>${teamTag}${h.no}. tur · kaptan ${esc(h.captainName)}${note}</small>${steal}</span><span class="pts">${pts}</span></li>`;
     })
     .join('');
 }
@@ -897,7 +1108,7 @@ function renderGame() {
   renderDock();
   put('g-players', playerChips());
   put('g-side-players', playerChips(true));
-  put('g-history', historyHtml(st().run.history));
+  put('g-history', historyHtml(st().run.history, st().run.mode));
 }
 
 // ── menü ──
@@ -907,47 +1118,87 @@ function openMenu() {
   if (!dlg) return;
   const s = st();
   dlg.innerHTML = `<div class="sheet-body">
-    <div class="sheet-head"><h2>${esc(s.teamName)} · oda ${esc(s.code)}</h2><button class="icon-btn" data-action="close-menu" aria-label="Kapat">${icon('x', { size: 18 })}</button></div>
+    <div class="sheet-head"><h2>${s.mode === 'duel' ? 'Düello' : esc(s.teamName)} · oda ${esc(s.code)}</h2><button class="icon-btn" data-action="close-menu" aria-label="Kapat">${icon('x', { size: 18 })}</button></div>
     <div class="menu-row">
       <button class="btn small" data-action="copy-link">${icon('link', { size: 15 })} Davet linki</button>
       <button class="btn small" data-action="mute">${icon(S.muted ? 'mute' : 'volume', { size: 15 })} ${S.muted ? 'Sesi aç' : 'Sesi kapat'}</button>
       <button class="btn small" data-action="theme">${icon(effectiveTheme() === 'dark' ? 'sun' : 'moon', { size: 15 })} ${effectiveTheme() === 'dark' ? 'Açık tema' : 'Koyu tema'}</button>
       <button class="btn small" data-action="leave">${icon('logout', { size: 15 })} Odadan çık</button>
     </div>
-    <div><h3 class="panel-title">Kurallar</h3>${rulesHtml()}</div>
+    <div><h3 class="panel-title">Kurallar</h3>${rulesHtml(s.mode, s.rules)}</div>
   </div>`;
   if (!dlg.open) dlg.showModal();
 }
 
 // ── oyun sonu ──
 
+function standingsHtml(list, mode) {
+  const duel = mode === 'duel';
+  return `<ol class="standings">${list
+    .map((x, i) => {
+      const bits = [];
+      if (x.captainPoints) bits.push(`kaptan +${x.captainPoints}`);
+      if (x.firsts) bits.push(`öncü ${x.firsts}`);
+      if (x.steals) bits.push(`çalma ${x.steals}`);
+      if (x.traps) bits.push(`tuzak ${x.traps}`);
+      const p = player(x.playerId) ?? { name: x.name, color: x.color, connected: true };
+      return `<li class="${i === 0 && x.points > 0 ? 'mvp' : ''}${duel ? ` tm${x.team}` : ''}"><span class="rk">${i === 0 && x.points > 0 ? icon('crown', { size: 15 }) : i + 1}</span>${avatar(p)}<span class="who"><b>${esc(x.name)}</b><small>${bits.join(' · ') || 'puan yok'}</small></span><span class="sc${x.points < 0 ? ' neg' : ''}">${x.points > 0 ? '+' : ''}${x.points}</span></li>`;
+    })
+    .join('')}</ol>`;
+}
+
 function renderEnd() {
   const s = st();
   const sum = s.summary;
   if (!sum) return;
-  const rec = sum.record;
-  const best = sum.bestCaptain;
   const host = isHost();
-  put(
-    'end',
-    `<div class="topline">${logo()}<button class="btn ghost small" data-action="leave">${icon('logout', { size: 16 })} Odadan çık</button></div>
-    <section class="panel end-hero">
+  const duel = sum.mode === 'duel';
+  let hero;
+  if (duel) {
+    const [a, b] = sum.teams;
+    const myTeam = me()?.team;
+    const title = sum.winner == null ? 'BERABERE' : `${esc(sum.teams[sum.winner].name)} KAZANDI`;
+    const mine = sum.winner != null && myTeam === sum.winner;
+    hero = `<section class="panel end-hero duel${sum.winner != null ? ` win${sum.winner}` : ''}">
+      <span class="label">Düello bitti</span>
+      <span class="winner">${title}</span>
+      <div class="vs"><span class="tm0"><i class="tdot"></i>${esc(a.name)}<b>${a.score}</b></span><em>—</em><span class="tm1"><b>${b.score}</b>${esc(b.name)}<i class="tdot"></i></span></div>
+      ${sum.winner != null ? `<span class="record">${icon('trophy', { size: 16 })} ${mine ? 'Tebrikler!' : 'Rövanş için yeniden oynayın'}</span>` : ''}
+    </section>`;
+  } else {
+    const rec = sum.record;
+    hero = `<section class="panel end-hero">
       <span class="label">${esc(s.teamName)} · oyun bitti</span>
       <span class="num">${sum.score}</span>
       <span class="muted">puan</span>
       ${rec.isNewRecord ? `<span class="record">${icon('trophy', { size: 16 })} Yeni takım rekoru!</span>` : `<span class="muted">Takım rekoru: <b>${rec.bestScore}</b> puan</span>`}
-    </section>
-    <section class="stats">
-      <div class="stat"><b>${sum.rounds}</b><span>tur</span></div>
-      <div class="stat"><b>${sum.hits}</b><span>isabet</span></div>
-      <div class="stat"><b>${sum.firstTry}</b><span>ilk sinyalde</span></div>
-    </section>
-    ${best ? `<section class="panel" style="display:flex;align-items:center;gap:12px">${avatar(player(best.playerId) ?? { name: best.name, color: 0, connected: true })}<div><b>En iyi kaptan: ${esc(best.name)}</b><div class="muted" style="font-size:14px">${best.points} puan · ${best.hits}/${best.rounds} turda isabet</div></div></section>` : ''}
-    <section class="panel"><h2 class="panel-title">Turlar</h2><ol class="history">${historyHtml(sum.history)}</ol></section>
+    </section>`;
+  }
+  const stats = duel
+    ? [
+        [sum.rounds, 'tur'],
+        [sum.hits, 'isabet'],
+        [sum.steals, 'çalma'],
+        [sum.lightnings, 'yıldırım'],
+      ]
+    : [
+        [sum.rounds, 'tur'],
+        [sum.hits, 'isabet'],
+        [sum.firstTry, 'ilk sinyalde'],
+        [sum.lightnings, 'yıldırım'],
+      ];
+  put(
+    'end',
+    `<div class="topline">${logo()}<button class="btn ghost small" data-action="leave">${icon('logout', { size: 16 })} Odadan çık</button></div>
+    ${hero}
+    <section class="stats">${stats.map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join('')}</section>
+    <section class="panel"><h2 class="panel-title">Bireysel sıralama</h2>${standingsHtml(sum.standings, sum.mode)}<p class="muted small-note">Kaptan takımına kazandırdığı puanı alır. Hedefe jetonunu ilk koyan +1, açılan parazite ilk koyan −1.</p></section>
+    ${!duel && s.leaderboard?.length ? `<section class="panel"><h2 class="panel-title">${icon('trophy', { size: 15 })} Rekor tablosu</h2>${leaderboardHtml(s.leaderboard, s.teamName)}</section>` : ''}
+    <section class="panel"><h2 class="panel-title">Turlar</h2><ol class="history">${historyHtml(sum.history, sum.mode)}</ol></section>
     <div class="end-actions">
       ${
         host
-          ? `<button class="btn primary block" data-action="start">${icon('refresh', { size: 18 })} Yeniden oyna</button><button class="btn block" data-action="to-lobby">Lobiye dön</button>`
+          ? `<button class="btn primary block" data-action="start">${icon('refresh', { size: 18 })} ${duel ? 'Rövanş' : 'Yeniden oyna'}</button><button class="btn block" data-action="to-lobby">Lobiye dön</button>`
           : `<p class="dock-note">${esc(pname(s.hostId))} yeni oyunu başlatabilir.</p>`
       }
     </div>`,
@@ -971,10 +1222,17 @@ function tick() {
   if (bar) bar.style.transform = `scaleX(${frac})`;
   const arc = document.getElementById('g-arc');
   if (arc) arc.style.strokeDashoffset = String(119.38 * (1 - frac));
-  const urgent = remaining != null && remaining <= 10_000 && (s.phase === 'SIGNAL' || s.phase === 'GUESS');
+  const urgent = remaining != null && remaining <= 10_000 && (s.phase === 'SIGNAL' || s.phase === 'GUESS' || s.phase === 'STEAL');
   statusEl?.classList.toggle('urgent', urgent);
+  const bolt = document.getElementById('g-bolt');
+  const until = round()?.lightningUntil;
+  const boltLeft = until && s.phase === 'GUESS' && !s.waiting ? until - serverNow() : 0;
+  if (bolt) {
+    bolt.hidden = boltLeft <= 0;
+    if (boltLeft > 0) bolt.innerHTML = `${icon('zap', { size: 13 })} Yıldırım +${round().lightningBonus} · ${Math.ceil(boltLeft / 1000)} sn`;
+  }
   const lock = round()?.lock;
-  if (lock && s.phase === 'GUESS') {
+  if (lock && (s.phase === 'GUESS' || s.phase === 'STEAL')) {
     const sec = Math.max(1, Math.ceil((lock.endsAt - serverNow()) / 1000));
     for (const el of document.querySelectorAll('[data-lock]')) el.textContent = String(sec);
     if (sec !== S.lastLockSec) {
@@ -1014,7 +1272,7 @@ function playSelected() {
 
 function setToken(target) {
   const r = round();
-  if (!r || st().phase !== 'GUESS' || isCaptain()) return;
+  if (!r || !canPickNow()) return;
   const next = myToken() === target ? null : target;
   // İyimser güncelleme: dokunuş anında görünsün, sunucu onaylar.
   if (next === null) delete r.tokens[S.me];
@@ -1025,6 +1283,8 @@ function setToken(target) {
 }
 
 const ACTIONS = {
+  mode: (el) => send({ type: 'set_mode', mode: el.dataset.mode }),
+  'swap-team': (el) => send({ type: 'set_player_team', playerId: el.dataset.id, team: Number(el.dataset.team) }),
   'forget-invite': () => {
     S.inviteCode = null;
     history.replaceState(null, '', '/');
@@ -1119,8 +1379,8 @@ document.addEventListener('keydown', (e) => {
       S.sel = hand[k - 1];
       render();
     } else if (e.key === 'Enter') playSelected();
-  } else if (s.phase === 'GUESS' && !isCaptain()) {
-    const k = Number(e.key);
+  } else if (canPickNow()) {
+    const k = e.key === '0' ? 10 : Number(e.key);
     if (k >= 1 && k <= r.board.length && !r.board[k - 1].revealed) setToken(k - 1);
     else if (e.key.toLocaleLowerCase('tr-TR') === 'p') setToken(PASS);
   }

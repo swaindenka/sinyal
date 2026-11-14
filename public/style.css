@@ -2286,3 +2286,641 @@ body.last-life::after {
     transition: none !important;
   }
 }
+
+/* ═════════════ v2.2: 12 kart, 8'lik el, düello, yıldırım, sıralama ═════════════ */
+
+/* 12 kartlık masa: telefonda 3, geniş ekranda 4 sütun */
+.board {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.board .tile {
+  min-height: 60px;
+  padding: 16px 4px 16px;
+}
+
+.board .tile .word {
+  font-size: 18px;
+}
+
+.board .tile .word.l8 {
+  font-size: 15px;
+}
+
+.board .tile .word.l10 {
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+.board .tile .tag {
+  top: 6px;
+  left: 8px;
+  font-size: 9px;
+}
+
+.board .tile .pip {
+  top: 6px;
+  right: 7px;
+}
+
+@media (min-width: 640px) {
+  .board {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .board .tile {
+    min-height: 96px;
+    padding: 18px 8px;
+  }
+  .board .tile .word {
+    font-size: 26px;
+  }
+  .board .tile .word.l8 {
+    font-size: 22px;
+  }
+  .board .tile .word.l10 {
+    font-size: 19px;
+  }
+  .board .tile .tag {
+    top: 8px;
+    left: 10px;
+    font-size: 10px;
+  }
+}
+
+.board.stealing .tile:not(:disabled) {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 0 0 2px var(--signal), 0 6px 14px var(--card-shadow);
+}
+
+/* 8 kartlık el: telefonda 4 sütun */
+.hand {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.hcard {
+  min-height: 50px;
+  font-size: 15px;
+  padding: 6px 2px;
+}
+
+.hcard .l8 {
+  font-size: 14px;
+}
+
+.hcard .l9 {
+  font-size: 13px;
+}
+
+.hcard .l10 {
+  font-size: 12px;
+}
+
+@media (min-width: 640px) {
+  .hand {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .hcard {
+    min-height: 58px;
+    font-size: 16px;
+  }
+  .hcard .l8,
+  .hcard .l9,
+  .hcard .l10 {
+    font-size: 14px;
+  }
+}
+
+.backs i {
+  width: 32px;
+  height: 46px;
+  margin-left: -18px;
+}
+
+.backs i:nth-child(7) {
+  transform: rotate(16deg) translateY(7px);
+}
+.backs i:nth-child(8) {
+  transform: rotate(20deg) translateY(10px);
+}
+
+/* takım renkleri */
+:root {
+  --team0: #2463eb;
+  --team1: #e7620b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --team0: #5b97ff;
+    --team1: #fb8c3c;
+  }
+}
+
+:root[data-theme='dark'] {
+  --team0: #5b97ff;
+  --team1: #fb8c3c;
+}
+
+.tm0 {
+  --tc: var(--team0);
+}
+
+.tm1 {
+  --tc: var(--team1);
+}
+
+.tdot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--tc);
+  flex: none;
+}
+
+/* mod seçici */
+.seg {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.seg-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.seg-opt .ic {
+  margin-top: 2px;
+}
+
+.seg-opt span {
+  display: grid;
+  gap: 2px;
+}
+
+.seg-opt b {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.seg-opt small {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.seg-opt.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.seg-opt.on .ic {
+  color: var(--accent);
+}
+
+.seg-opt:disabled {
+  opacity: 1;
+}
+
+.seg-opt:disabled:not(.on) {
+  opacity: 0.55;
+}
+
+@media (max-width: 420px) {
+  .seg {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* lobide iki takım */
+.plist.teams {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.plist.teams > li.team-col {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 10px 10px 4px;
+  border: none;
+  border-radius: 14px;
+  background: var(--surface-2);
+  box-shadow: inset 0 3px 0 var(--tc);
+}
+
+.team-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-card);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.06em;
+  color: var(--tc);
+}
+
+.team-head small {
+  margin-left: auto;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  letter-spacing: 0;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.team-col .plist li {
+  padding: 8px 0;
+  gap: 8px;
+}
+
+.team-col .avatar {
+  --size: 28px;
+}
+
+.team-col .ctrl .icon-btn {
+  width: 30px;
+  height: 30px;
+}
+
+@media (max-width: 520px) {
+  .plist.teams {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* rekor tablosu ve bireysel sıralama */
+.lboard,
+.standings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.lboard li {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+
+.lboard li.me {
+  box-shadow: inset 0 0 0 2px var(--signal);
+}
+
+.lboard .rk,
+.standings .rk {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--surface);
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.lboard li:first-child .rk {
+  background: var(--signal);
+  color: var(--signal-ink);
+}
+
+.lboard b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lboard .sc,
+.standings .sc {
+  font-family: var(--font-card);
+  font-weight: 700;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  min-width: 2.5ch;
+  text-align: right;
+}
+
+.standings li {
+  display: grid;
+  grid-template-columns: 26px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.standings li.tm0,
+.standings li.tm1 {
+  box-shadow: inset 3px 0 0 var(--tc);
+}
+
+.standings li.mvp {
+  background: linear-gradient(90deg, rgba(255, 176, 32, 0.22), var(--surface-2) 70%);
+}
+
+.standings li.mvp .rk {
+  background: var(--signal);
+  color: var(--signal-ink);
+}
+
+.standings .who {
+  display: grid;
+  min-width: 0;
+}
+
+.standings .who b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.standings .who small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sc.neg,
+.pp.neg {
+  color: var(--bad);
+}
+
+.small-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+/* oyuncu çipinde bireysel puan */
+.pp {
+  font-style: normal;
+  font-weight: 800;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.pchip.tm0,
+.pchip.tm1 {
+  box-shadow: inset 0 -2px 0 var(--tc);
+}
+
+/* düello skor tablosu */
+.duel-score {
+  display: flex;
+  gap: 6px;
+}
+
+.ts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+}
+
+.ts b {
+  font-family: var(--font-card);
+  font-size: 19px;
+  line-height: 1;
+  letter-spacing: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ts.on {
+  border-color: var(--tc);
+  box-shadow: 0 0 0 1px var(--tc);
+}
+
+@media (max-width: 400px) {
+  .ts {
+    padding: 4px 8px;
+    font-size: 10px;
+    letter-spacing: 0.02em;
+  }
+  .ts b {
+    font-size: 17px;
+  }
+}
+
+/* yıldırım sayacı */
+.status .bolt {
+  position: absolute;
+  top: -11px;
+  right: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--signal);
+  color: var(--signal-ink);
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: 0 4px 12px rgba(255, 176, 32, 0.4);
+  animation: boltPulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes boltPulse {
+  to {
+    transform: translateY(-1px) scale(1.04);
+  }
+}
+
+/* çalma */
+.status.steal {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 1px var(--signal), var(--shadow);
+}
+
+.status.steal.me {
+  background: linear-gradient(135deg, rgba(255, 176, 32, 0.22), var(--surface) 70%);
+}
+
+.status.steal .phase-ic {
+  background: var(--signal);
+  color: var(--signal-ink);
+}
+
+.status.res-steal {
+  background: linear-gradient(135deg, var(--signal-2), var(--signal));
+  color: var(--signal-ink);
+  border-color: transparent;
+}
+
+.status.res-steal .say span {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.status.res-steal .phase-ic {
+  background: rgba(0, 0, 0, 0.12);
+  color: inherit;
+}
+
+.status.res-steal .timer .track {
+  stroke: rgba(0, 0, 0, 0.14);
+}
+
+.status.res-steal .timer .arc {
+  stroke: currentColor;
+}
+
+.dock-note.watch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px dashed var(--slot-line);
+  font-size: 14px;
+}
+
+/* geçmişte takım ve çalma */
+.history .tt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 800;
+  color: var(--tc);
+}
+
+.history .tt .tdot {
+  width: 8px;
+  height: 8px;
+}
+
+.history .stl {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--tc);
+}
+
+.splash.team0 b {
+  background: var(--team0);
+}
+
+.splash.team1 b {
+  background: var(--team1);
+}
+
+/* düello sonu */
+.end-hero.duel .winner {
+  font-family: var(--font-card);
+  font-weight: 700;
+  font-size: clamp(34px, 9vw, 54px);
+  letter-spacing: 0.04em;
+  line-height: 1.05;
+}
+
+.end-hero.win0 .winner {
+  color: var(--team0);
+}
+
+.end-hero.win1 .winner {
+  color: var(--team1);
+}
+
+.end-hero .vs {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  font-size: 13px;
+}
+
+.end-hero .vs span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--tc);
+}
+
+.end-hero .vs b {
+  font-family: var(--font-card);
+  font-size: 46px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.end-hero .vs em {
+  font-style: normal;
+  color: var(--muted);
+  font-size: 24px;
+}
+
+.stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 400px) {
+  .stat {
+    padding: 10px 4px;
+  }
+  .stat b {
+    font-size: 24px;
+  }
+}
+
+.mini.duelmini {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.mini.duelmini i {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--tc);
+}
+
+.mini.duelmini b {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.status .bolt[hidden] {
+  display: none;
+}
+
+.hud .where .lvl.inline {
+  vertical-align: 1px;
+  margin: 0 4px 0 0;
+  font-size: 10px;
+  padding: 1px 6px;
+}
