@@ -26,6 +26,8 @@
 
 **Takım** sinyali konuşur ve jetonlarını kartlara koyar. Bütün tahmincilerin jetonu aynı kartta birleşince 3 saniyelik geri sayım başlar; kimse jetonunu çekmezse kart açılır. Jetonlar **Pas** alanında birleşirse kart açılmadan yeni sinyal istenir.
 
+**İşaretler:** Jeton tek karta konur ve kararı verir; düşünmeyi göstermek için ayrıca iki işaret vardır. **Aday** birden çok karta konabilir ("şu dördünü düşünüyorum"), **Ele** "bu değil" demektir. Kaptan dışındaki herkes tur boyunca (kaptan sinyal seçerken de) işaret koyar; işaretler sinyaller arasında kalır, açılan kartınki silinir, yeni turda sıfırlanır. Kaptan takımının işaretlerini görür ama koyamaz. Bağlı bütün tahmincilerin elediği kart herkes için soluklaşır ("ELENDİ"). Düelloda her takım yalnızca kendi işaretlerini görür; sırası gelmeyen takım da çalmaya hazırlık için işaret koyabilir.
+
 **Sinyal hakkı:** Turda en fazla 3 sinyal oynanır. Hedef 1. sinyalden sonra bulunursa **3 puan**, 2.den sonra **2**, 3.den sonra **1** puan. 3. sinyalden sonra da bulunamazsa sinyal kesilir: **−1 can**.
 
 **Yıldırım:** Hedef, son sinyalden sonraki **15 saniye** içinde bulunursa **+1 puan**. Ekranda geri sayan bir rozet görünür; takımı hızlı karar vermeye iter.

@@ -670,3 +670,64 @@ test('düelloda karıştırmak takımları dengeler; mod yalnızca lobide deği�
   h.room.handle(h.ps[0].id, { type: 'set_mode', mode: 'coop' });
   assert.equal(h.lastError(h.ps[0].id), 'BAD_PHASE');
 });
+
+// ───────────────────────── işaretler ─────────────────────────
+
+test('işaret: tahminci birden çok karta aday / ele koyar; sinyal aşamasında da olur', () => {
+  const h = makeRoom({ players: 3 });
+  h.start();
+  const [g] = h.guessers().length ? h.guessers() : [h.ps[1]];
+  const guesser = h.room.players.get(h.ps[1].id);
+  h.room.handle(guesser.id, { type: 'mark', index: 0, mark: 'cand' });
+  h.room.handle(guesser.id, { type: 'mark', index: 1, mark: 'cand' });
+  h.room.handle(guesser.id, { type: 'mark', index: 2, mark: 'out' });
+  assert.deepEqual(h.state().round.marks[guesser.id], { 0: 'cand', 1: 'cand', 2: 'out' });
+  h.room.handle(guesser.id, { type: 'mark', index: 1, mark: null });
+  h.room.handle(guesser.id, { type: 'mark', index: 0, mark: 'out' });
+  assert.deepEqual(h.state().round.marks[guesser.id], { 0: 'out', 2: 'out' });
+  assert.ok(g);
+  // jetonu etkilemez
+  assert.equal(h.room.round.tokens.size, 0);
+});
+
+test('işaret: kaptan koyamaz, geçersiz kart ve işaret reddedilir, temizlenebilir', () => {
+  const h = makeRoom({ players: 3 });
+  h.start();
+  const cap = h.captain();
+  h.room.handle(cap.id, { type: 'mark', index: 0, mark: 'cand' });
+  assert.equal(h.lastError(cap.id), 'CAPTAIN_CANNOT_PICK');
+  const g = h.room.players.get(h.ps[1].id);
+  h.room.handle(g.id, { type: 'mark', index: 99, mark: 'cand' });
+  assert.equal(h.lastError(g.id), 'BAD_TARGET');
+  h.room.handle(g.id, { type: 'mark', index: 0, mark: 'belki' });
+  assert.equal(h.lastError(g.id), 'BAD_MARK');
+  h.room.handle(g.id, { type: 'mark', index: 3, mark: 'cand' });
+  h.room.handle(g.id, { type: 'mark_clear' });
+  assert.equal(h.state().round.marks[g.id], undefined);
+});
+
+test('işaret: açılan kartın işaretleri silinir, diğerleri tur boyunca kalır, yeni turda sıfırlanır', () => {
+  const h = makeRoom({ players: 3 });
+  h.start();
+  const g = h.room.players.get(h.ps[1].id);
+  const n = h.roleIndex('neutral');
+  const other = h.room.round.board.findIndex((c, i) => i !== n && c.role === 'neutral');
+  h.room.handle(g.id, { type: 'mark', index: n, mark: 'cand' });
+  h.room.handle(g.id, { type: 'mark', index: other, mark: 'out' });
+  h.signal();
+  h.pick(n);
+  assert.equal(h.room.phase, Phase.SIGNAL);
+  assert.deepEqual(h.state().round.marks[g.id], { [other]: 'out' });
+  h.signal();
+  h.pickRole('target');
+  h.room.handle(h.room.hostId, { type: 'next' });
+  assert.deepEqual(h.state().round.marks, {});
+});
+
+test('işaret: düelloda sırası gelmeyen takım da çalmaya hazırlık için işaret koyabilir', () => {
+  const h = makeRoom({ players: 4, mode: 'duel' });
+  h.start();
+  const rival = h.team(1)[0];
+  h.room.handle(rival.id, { type: 'mark', index: 0, mark: 'cand' });
+  assert.deepEqual(h.state().round.marks[rival.id], { 0: 'cand' });
+});

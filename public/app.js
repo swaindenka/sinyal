@@ -17,6 +17,7 @@ const ERRORS = {
   TEAMS_UNBALANCED: 'Düelloda her takımda en az 2 oyuncu olmalı.',
   NOT_YOUR_TURN: 'Şu an sıra sizde değil.',
   BAD_MODE: 'Bilinmeyen oyun modu.',
+  BAD_MARK: 'Bilinmeyen işaret.',
   TEAM_INVALID: 'Takım adı boş olamaz.',
   BAD_PHASE: 'Şu an olmaz.',
   NOT_CAPTAIN: 'Sinyali kaptan oynar.',
@@ -82,6 +83,7 @@ const S = {
   muted: store.get('sinyal.muted') === '1',
   theme: store.get('sinyal.theme'),
   lastLockSec: null,
+  tool: 'token', // kart dokunuşu: 'token' (jeton) | 'cand' (aday) | 'out' (ele)
 };
 
 const st = () => S.st;
@@ -105,6 +107,42 @@ function canPickNow() {
   if (s.phase === 'STEAL') return Boolean(r.steal) && p.team === r.steal.team;
   if (s.phase !== 'GUESS' || r.captainId === S.me) return false;
   return r.team == null || p.team === r.team;
+}
+
+/** Kart işaretleyebilir miyim? (kaptan dışında herkes, tur sürerken) */
+function canMarkNow() {
+  const s = st();
+  const r = round();
+  return Boolean(r && me() && !s.waiting && ['SIGNAL', 'GUESS', 'STEAL'].includes(s.phase) && r.captainId !== S.me);
+}
+
+/** Etkin araç: jeton koyamıyorsam dokunuş aday işaretine döner. */
+function activeTool() {
+  if (S.tool === 'token' && !canPickNow()) return canMarkNow() ? 'cand' : 'token';
+  return S.tool;
+}
+
+/** Görebildiğim işaretler: ortak oyunda herkesinki, düelloda yalnızca kendi takımımınki. */
+function marksOn(i) {
+  const s = st();
+  const r = round();
+  const myTeam = me()?.team;
+  const out = { cand: [], out: [] };
+  for (const p of s.players) {
+    if (s.run?.mode === 'duel' && p.team !== myTeam) continue;
+    const m = r.marks?.[p.id]?.[i];
+    if (m) out[m].push(p);
+  }
+  return out;
+}
+
+/** Bu kartı eleyebilecek herkes (bağlı, kaptan değil, düelloda benim takımım) eledi mi? */
+function eliminatedByAll(outs) {
+  const s = st();
+  const r = round();
+  const myTeam = me()?.team;
+  const voters = s.players.filter((p) => p.connected && p.id !== r.captainId && (s.run?.mode !== 'duel' || p.team === myTeam));
+  return voters.length > 0 && voters.every((p) => outs.some((o) => o.id === p.id));
 }
 
 function vibrate(pattern) {
@@ -509,7 +547,8 @@ function rulesHtml(mode = 'coop', R = {}) {
   const common = `
     <li><span>Masada ${r.boardSize} kelime kartı var. <b>Kaptan</b> hangisinin <b>hedef</b>, hangilerinin <b>parazit</b> olduğunu bilir ama konuşamaz.</span></li>
     <li><span>Kaptan elindeki ${r.handSize} kelime kartından birini <b>sinyal</b> olarak oynar. Turda bir kez elini değiştirebilir.</span></li>
-    <li><span>Tahminciler konuşur ve <b>jetonlarını</b> kartlara koyar. Herkes aynı kartta birleşince 3 saniyede kart açılır. <b>Pas</b> yeni sinyal ister.</span></li>`;
+    <li><span>Tahminciler konuşur ve <b>jetonlarını</b> kartlara koyar. Herkes aynı kartta birleşince 3 saniyede kart açılır. <b>Pas</b> yeni sinyal ister.</span></li>
+    <li><span>Düşündüklerinizi göstermek için kartlara jetondan ayrı <b>Aday ★</b> (istediğiniz kadar kart) ya da <b>Ele ✕</b> işareti koyun. Takım arkadaşlarınız görür; herkesin elediği kart soluklaşır.</span></li>`;
   const personal = `<li><span><b>Bireysel puan:</b> kaptan takımına kazandırdığını alır, hedefe jetonunu ilk koyan +1, açılan parazite ilk koyan −1.</span></li>`;
   if (mode === 'duel')
     return `<ol class="rules">${common}
@@ -631,6 +670,7 @@ const SKELETON = {
         <section class="status" id="g-status"><span class="phase-ic" id="g-ic"></span><div class="say" id="g-say" aria-live="polite"></div><span class="timer" id="g-timer"><svg viewBox="0 0 44 44" aria-hidden="true"><circle class="track" cx="22" cy="22" r="19"/><circle class="arc" id="g-arc" cx="22" cy="22" r="19"/></svg><span class="secs" id="g-secs"></span></span><span class="bolt" id="g-bolt" hidden></span><div id="g-wait" class="wait-slot"></div></section>
         <section class="table" aria-label="Masa">
           <div class="signals" id="g-signals" aria-label="Sinyaller"></div>
+          <div class="tools" id="g-tools"></div>
           <div class="board" id="g-board" aria-label="Kartlar"></div>
         </section>
         <section class="dock" id="g-dock"></section>
@@ -943,8 +983,12 @@ function tileHtml(card, i) {
   const r = round();
   const cap = capInfo();
   const reveal = s.phase === 'REVEAL';
-  const canPick = canPickNow() && !card.revealed;
+  const tool = activeTool();
+  const canPick = !card.revealed && (tool === 'token' ? canPickNow() : canMarkNow());
   const mine = myToken() === i;
+  const mk = card.revealed || reveal ? { cand: [], out: [] } : marksOn(i);
+  const myMark = r.marks?.[S.me]?.[i];
+  const allOut = mk.out.length > 0 && eliminatedByAll(mk.out);
   const meP = me();
   const cls = ['tile'];
   let tag = '';
@@ -975,15 +1019,42 @@ function tileHtml(card, i) {
     }
   }
   if (mine && meP) cls.push('mine', `pc${meP.color}`);
+  if (allOut) {
+    cls.push('out-all');
+    if (!tag) tag = `${icon('x', { size: 11 })} ELENDİ`;
+  } else if (myMark === 'out') cls.push('out-me');
+  if (myMark === 'cand') cls.push('cand-me');
+  if (mk.cand.length >= 2) cls.push('hot');
+  const marks = [
+    ...mk.cand.map((p) => `<i class="mk cand pc${p.color}" title="${esc(p.name)}: aday">${esc([...p.name][0])}</i>`),
+    ...mk.out.map((p) => `<i class="mk out pc${p.color}" title="${esc(p.name)}: ele">${icon('x', { size: 9 })}</i>`),
+  ].join('');
   const locking = r.lock && r.lock.target === i && (s.phase === 'GUESS' || s.phase === 'STEAL');
   if (locking) cls.push('locking');
   const toks = tokenChips(i);
   const len = [...card.word].length;
   const wcls = len >= 10 ? ' l10' : len >= 8 ? ' l8' : '';
   const role = cap && !card.revealed ? ({ target: ', hedef', parasite: ', parazit' }[cap.roles[i]] ?? '') : '';
-  return `<button class="${cls.join(' ')}" data-action="tile" data-i="${i}" ${canPick ? '' : 'disabled'} aria-pressed="${mine}" aria-label="${esc(card.word)}${role}${card.revealed ? `, açık: ${tag.replace(/<[^>]+>/g, '').trim()}` : ''}">
-    ${tag ? `<span class="tag">${tag}</span>` : ''}${card.revealed ? '' : icon('signal', { size: 13, cls: 'pip' })}<span class="word${wcls}">${esc(card.word)}</span>${toks ? `<span class="toks">${toks}</span>` : ''}${locking ? '<span class="lockn" data-lock></span>' : ''}
+  return `<button class="${cls.join(' ')}" data-action="tile" data-i="${i}" ${canPick ? '' : 'disabled'} aria-pressed="${mine}" aria-label="${esc(card.word)}${role}${mk.cand.length ? `, ${mk.cand.length} aday` : ''}${mk.out.length ? `, ${mk.out.length} ele` : ''}${card.revealed ? `, açık: ${tag.replace(/<[^>]+>/g, '').trim()}` : ''}">
+    ${tag ? `<span class="tag">${tag}</span>` : ''}${card.revealed || marks ? '' : icon('signal', { size: 13, cls: 'pip' })}${marks ? `<span class="mks">${marks}</span>` : ''}<span class="word${wcls}">${esc(card.word)}</span>${toks ? `<span class="toks">${toks}</span>` : ''}${locking ? '<span class="lockn" data-lock></span>' : ''}
   </button>`;
+}
+
+function renderTools() {
+  if (!canMarkNow()) {
+    put('g-tools', '');
+    return;
+  }
+  const tool = activeTool();
+  const pick = canPickNow();
+  const mineCount = Object.keys(round().marks?.[S.me] ?? {}).length;
+  const opt = (id, ic, label, disabled = false) =>
+    `<button class="tool${tool === id ? ' on' : ''} t-${id}" data-action="tool" data-tool="${id}" ${disabled ? 'disabled' : ''} aria-pressed="${tool === id}">${icon(ic, { size: 15, fill: id === 'cand' })}${label}</button>`;
+  const hint = tool === 'token' ? 'Dokun: jetonunu koy' : tool === 'cand' ? 'Dokun: aday işaretle (birden çok)' : 'Dokun: kartı ele';
+  put(
+    'g-tools',
+    `<div class="toolbar" role="toolbar" aria-label="Kart aracı">${opt('token', 'hand', 'Jeton', !pick)}${opt('cand', 'star', 'Aday')}${opt('out', 'x', 'Ele')}<button class="tool t-clear" data-action="clear-marks" ${mineCount ? '' : 'disabled'} aria-label="İşaretlerimi temizle">${icon('refresh', { size: 14 })}</button></div><span class="tool-hint">${hint}</span>`,
+  );
 }
 
 function renderBoard() {
@@ -1104,6 +1175,7 @@ function renderGame() {
   put('g-hud', hudHtml());
   renderStatus();
   renderSignals();
+  renderTools();
   renderBoard();
   renderDock();
   put('g-players', playerChips());
@@ -1282,6 +1354,20 @@ function setToken(target) {
   render();
 }
 
+function toggleMark(i, kind) {
+  const r = round();
+  if (!r || !canMarkNow() || r.board[i]?.revealed) return;
+  r.marks ??= {};
+  const mine = (r.marks[S.me] ??= {});
+  const next = mine[i] === kind ? null : kind;
+  // İyimser güncelleme
+  if (next) mine[i] = next;
+  else delete mine[i];
+  SOUND.pick();
+  send({ type: 'mark', index: i, mark: next });
+  render();
+}
+
 const ACTIONS = {
   mode: (el) => send({ type: 'set_mode', mode: el.dataset.mode }),
   'swap-team': (el) => send({ type: 'set_player_team', playerId: el.dataset.id, team: Number(el.dataset.team) }),
@@ -1324,7 +1410,22 @@ const ACTIONS = {
   },
   play: playSelected,
   redraw: () => send({ type: 'redraw' }),
-  tile: (el) => setToken(Number(el.dataset.i)),
+  tile: (el) => {
+    const i = Number(el.dataset.i);
+    const tool = activeTool();
+    if (tool === 'token') setToken(i);
+    else toggleMark(i, tool);
+  },
+  tool: (el) => {
+    S.tool = el.dataset.tool;
+    render();
+  },
+  'clear-marks': () => {
+    const r = round();
+    if (r?.marks) delete r.marks[S.me];
+    send({ type: 'mark_clear' });
+    render();
+  },
   pass: () => setToken(PASS),
   next: () => send({ type: 'next' }),
   menu: openMenu,
@@ -1372,6 +1473,12 @@ document.addEventListener('keydown', (e) => {
   const s = st();
   if (!s || viewName() !== 'game') return;
   const r = round();
+  const key = e.key.toLocaleLowerCase('tr-TR');
+  if (canMarkNow() && ['j', 'a', 'e'].includes(key)) {
+    S.tool = { j: 'token', a: 'cand', e: 'out' }[key];
+    render();
+    return;
+  }
   if (s.phase === 'SIGNAL' && isCaptain()) {
     const hand = capInfo()?.hand ?? [];
     const k = Number(e.key);
@@ -1379,9 +1486,9 @@ document.addEventListener('keydown', (e) => {
       S.sel = hand[k - 1];
       render();
     } else if (e.key === 'Enter') playSelected();
-  } else if (canPickNow()) {
+  } else if (canMarkNow()) {
     const k = e.key === '0' ? 10 : Number(e.key);
-    if (k >= 1 && k <= r.board.length && !r.board[k - 1].revealed) setToken(k - 1);
+    if (k >= 1 && k <= r.board.length && !r.board[k - 1].revealed) ACTIONS.tile({ dataset: { i: k - 1 } });
     else if (e.key.toLocaleLowerCase('tr-TR') === 'p') setToken(PASS);
   }
 });
