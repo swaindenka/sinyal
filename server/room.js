@@ -23,6 +23,8 @@ export const Phase = Object.freeze({
 const PLAY_PHASES = new Set([Phase.SIGNAL, Phase.GUESS, Phase.STEAL, Phase.REVEAL]);
 export const PASS = 'pass';
 export const MODES = ['coop', 'duel'];
+/** Kart işaretleri: 'cand' = aday (düşündüğüm kart), 'out' = ele (bu değil). Jetondan bağımsızdır. */
+export const MARKS = ['cand', 'out'];
 export const DUEL_TEAMS = ['MAVİ', 'TURUNCU'];
 
 const NAME_MAX = 16;
@@ -293,6 +295,7 @@ export class Room {
       }
     }
     this.round?.tokens.delete(playerId);
+    this.round?.marks.delete(playerId);
     if (!this.activePlayers().length) {
       this.close();
       this.onEmpty(this);
@@ -437,6 +440,12 @@ export class Room {
           break;
         case 'token':
           this.placeToken(p, msg.target);
+          break;
+        case 'mark':
+          this.setMark(p, msg.index, msg.mark);
+          break;
+        case 'mark_clear':
+          this.clearMarks(p);
           break;
         case 'next':
           this.skipReveal(p);
@@ -621,6 +630,7 @@ export class Room {
       redraws: c.redrawsPerRound,
       tokens: new Map(),
       tokenAt: new Map(),
+      marks: new Map(), // oyuncu → (kart → 'cand' | 'out')
       lock: null,
       picks: [],
       steal: null,
@@ -737,6 +747,41 @@ export class Room {
     this.checkConsensus();
   }
 
+  /**
+   * İşaret: kaptan dışındaki herkes, tur boyunca (sinyal, tahmin ve çalma aşamalarında) açılmamış
+   * kartlara istediği kadar aday / ele işareti koyar. Düelloda sırası gelmeyen takım da çalma için
+   * hazırlık yapabilir; istemci yalnızca kendi takımının işaretlerini gösterir.
+   */
+  setMark(p, index, mark) {
+    this.requirePhase(Phase.SIGNAL, Phase.GUESS, Phase.STEAL);
+    const r = this.round;
+    if (p.id === r.captainId) throw new GameError('CAPTAIN_CANNOT_PICK');
+    const i = Number(index);
+    if (!Number.isInteger(i) || i < 0 || i >= r.board.length || r.board[i].revealed) throw new GameError('BAD_TARGET');
+    if (mark != null && !MARKS.includes(mark)) throw new GameError('BAD_MARK');
+    const now = this.now();
+    if (now - p.lastTokenAt < (this.config.tokenRateLimitMs ?? 0)) throw new GameError('RATE_LIMITED');
+    p.lastTokenAt = now;
+    let mine = r.marks.get(p.id);
+    if (!mine) r.marks.set(p.id, (mine = new Map()));
+    if (mark == null) mine.delete(i);
+    else mine.set(i, mark);
+    if (!mine.size) r.marks.delete(p.id);
+  }
+
+  clearMarks(p) {
+    this.requirePhase(Phase.SIGNAL, Phase.GUESS, Phase.STEAL);
+    this.round.marks.delete(p.id);
+  }
+
+  /** Açılan kartın işaretleri silinir. */
+  dropMarks(index) {
+    for (const [pid, mine] of this.round.marks) {
+      mine.delete(index);
+      if (!mine.size) this.round.marks.delete(pid);
+    }
+  }
+
   /** Bütün bağlı tahmincilerin jetonu aynı yerdeyse geri sayım başlar; biri ayrılırsa durur. */
   checkConsensus() {
     const r = this.round;
@@ -832,6 +877,7 @@ export class Room {
     const card = r.board[target];
     card.revealed = true;
     card.pickedAt = n;
+    this.dropMarks(target);
     r.picks.push({ index: target, word: card.word, role: card.role, reason });
     this.emit('flip', { index: target, word: card.word, role: card.role, reason, n, leaderId: lead?.id ?? null });
     if (card.role === 'target') {
@@ -918,6 +964,7 @@ export class Room {
       const card = r.board[target];
       card.revealed = true;
       card.pickedAt = 'steal';
+      this.dropMarks(target);
       r.picks.push({ index: target, word: card.word, role: card.role, reason, steal: true });
       this.emit('flip', { index: target, word: card.word, role: card.role, reason, steal: true, leaderId: lead?.id ?? null });
       steal = { ...steal, index: target, leaderId: lead?.id ?? null };
@@ -1107,6 +1154,7 @@ export class Room {
         handCount: r.hand.length,
         redraws: r.redraws,
         tokens: Object.fromEntries(r.tokens),
+        marks: Object.fromEntries([...r.marks].map(([pid, m]) => [pid, Object.fromEntries(m)])),
         lock: r.lock,
         steal: r.steal && { team: r.steal.team, cause: r.steal.cause, result: r.steal.result },
         stealPoints: c.stealPoints ?? 2,

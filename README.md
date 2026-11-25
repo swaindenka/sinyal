@@ -14,6 +14,9 @@ iki takımın kapıştığı **düello**. Hesap ve kurulum gerektirmez; telefon 
    Turda bir kez elini tamamen değiştirebilir.
 3. Takım konuşur ve **jetonlarını** kartlara koyar. Bütün tahmincilerin jetonu aynı kartta birleşince
    3 saniyelik geri sayımla kart açılır. **Pas** alanında birleşilirse kart açılmadan yeni sinyal istenir.
+   Kartlara jetondan ayrı **Aday ★** (istediğin kadar kart: "bunları düşünüyorum") ve **Ele ✕**
+   ("bu değil") işaretleri de koyabilirsin. Takım arkadaşların ve kaptan görür; herkesin elediği kart
+   soluklaşır. Masanın üstündeki araç çubuğundan (Jeton / Aday / Ele) seçilir; klavyede J, A, E.
 4. Hedef 1. sinyalden sonra bulunursa **3**, 2.den sonra **2**, 3.den sonra **1** puan; sinyalden sonraki
    15 saniyede bulunursa **yıldırım +1**. Boş kart çıkarsa kaptan yeni sinyal oynar. **Parazit** ya da
    3 sinyalde bulamamak **1 can** götürür.
